@@ -1,10 +1,15 @@
 # Development, changelog and publishing
 
-The repository is still a design, not an installable library. Automation is staged for the future package; enabling it is not a substitute for the README's acceptance criteria.
+The repository has local recovery source and tests, but is not yet an installable library. Automation is staged for the future package; enabling it is not a substitute for the README's acceptance criteria.
 
 ## Development
 
-Use Node.js 24. Today, run `node scripts/check-repository.mjs` for repository checks. Development CI runs on PRs and pushes to main and explicitly reports that runtime verification is unavailable while package.json is absent.
+Use Node.js 24. Run `node scripts/check-repository.mjs` for repository checks, then
+`npm ci --prefix contracts --ignore-scripts`, `npm run --prefix contracts typecheck`
+and `npm run --prefix contracts test` to compile the contracts/local source and run
+example and local recovery tests. Development CI runs these on PRs and pushes to
+main. Full package/build verification remains unavailable while root package.json
+is absent.
 
 When implementing the package, commit an exact `packageManager: pnpm@X.Y.Z` pin and pnpm-lock.yaml. CI will then require `lint`, `typecheck`, `test`, `build`, and `test:package`, run after `pnpm install --frozen-lockfile`. Tests must exit rather than watch. The package test must pack the build and install that tarball into independent npm and pnpm consumers, exercising declarations, supported exports, React rendering and server imports. Define the supported React/Node/TypeScript matrix and expand CI accordingly before advertising compatibility.
 

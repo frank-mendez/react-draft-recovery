@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test examples.test.mjs"
+    "test": "node --test examples.test.mjs ../tests/*.test.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

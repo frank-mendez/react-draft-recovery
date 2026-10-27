@@ -40,7 +40,7 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org
       - run: node scripts/check-repository.mjs --require-package
-      - name: Check API contract types and examples
+      - name: Check contracts and local recovery
         run: |
           npm ci --prefix contracts --ignore-scripts
           npm run --prefix contracts typecheck

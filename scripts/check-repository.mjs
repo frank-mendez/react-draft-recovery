@@ -9,7 +9,7 @@ JSON.parse(read('release-please-config.json'));
 JSON.parse(read('.release-please-manifest.json'));
 if (!existsSync('package.json')) {
   assert(!process.argv.includes('--require-package'), 'Release blocked: package.json is missing');
-  console.log('Design phase: repository checks passed; no library build or runtime tests exist.');
+  console.log('Repository checks passed; no publishable package exists. Run the contracts tooling for typechecks and local recovery tests.');
   process.exit(0);
 }
 const pkg = JSON.parse(read('package.json'));

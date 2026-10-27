@@ -20,3 +20,9 @@ runtime conformance remains work for the engine and concrete adapters.
 Recommended order: settle the contracts and package foundation; implement storage and engine with adversarial tests; add React integration and examples; validate consumers; configure and publish beta. Stabilization requires real usage feedback after beta.
 
 This change adds development checks, changelog/release PR automation, a gated manual npm publish workflow and a publishing runbook. It deliberately does not implement the library or mark README roadmap items complete. Release configuration is inert until repository variables are enabled. Workflow execution in GitHub and real publishing still require a pushed change and account setup.
+
+Follow-up for issue #2: [local recovery](local-recovery.md) now has a concrete
+localStorage adapter and tested session implementation, including scoped envelopes,
+codec migration, expiration, failures, account cleanup and explicit competing-tab
+recovery. The original table remains a baseline record. Remote coordination, React
+integration and independent packaged consumers remain outstanding.

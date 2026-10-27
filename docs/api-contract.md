@@ -2,8 +2,9 @@
 
 This is the initial design contract for issue #1. The authoritative type shapes
 are in [contracts/index.ts](../contracts/index.ts). They are not an installable
-package or implemented engine. Storage, scheduling, React bindings and production
-backend adapters remain separate implementation work. Names may change before beta.
+package or implemented remote engine. The [local recovery primitive](local-recovery.md)
+implements storage and explicit local restoration. Scheduling, React bindings and
+production backend adapters remain separate implementation work. Names may change before beta.
 
 ## Boundaries and identity
 
@@ -86,8 +87,8 @@ become visible errors, never successful saves. Do not put secrets in messages.
 
 The core validates the local envelope (formatVersion, matching scope, nonempty
 revision when present, integer dataVersion, string payload and valid savedAt)
-before calling the codec. savedAt is diagnostic only. The codec owns application
-serialization, schema validation and explicit migrations; TypeScript types do not
+before calling the codec. savedAt is diagnostic and may be used for opt-in local
+expiration; it is never a revision. The codec owns application serialization, schema validation and explicit migrations; TypeScript types do not
 validate runtime input. Unsupported/corrupt records produce an error and are not
 automatically deleted or restored. Encode must produce a detached snapshot; input
 mutation after dispatch must not change request contents. Remote adapters validate
@@ -100,7 +101,9 @@ must disclose weaker guarantees. Resolve only after the attempted operation fini
 Quota, unavailable storage and serialization failures remain observable. Storage is
 best effort, not a backup or secret vault. Local read/write/remove provides no
 cross-tab compare-and-swap; the engine must not claim local multi-writer safety.
-Use remote revisions for remote safety and leave local tab coordination to issue #2.
+Use remote revisions for remote safety. The [local recovery primitive](local-recovery.md)
+notifies about competing tab changes without replacing active input; it does not
+provide atomic local compare-and-swap.
 
 `discardLocal` removes the recovery record only, retaining active input and remote
 state. `discardRemote` deletes only the scoped remote draft using the same revision
@@ -203,11 +206,12 @@ A backend implementation must additionally pass these behavioral scenarios:
 
 Run `npm ci --prefix contracts --ignore-scripts` followed by
 `npm run --prefix contracts typecheck` to verify
-examples and negative type assertions. This checks contract shape only; runtime
-conformance tests will accompany the engine and concrete adapters.
+examples and negative type assertions. This checks contract/source types only; behavioral local recovery tests run
+separately below. Remote conformance tests will accompany the remote engine and adapters.
 
 Both development and release workflows run this same locked, script-disabled
 compiler installation, typecheck, and `npm run --prefix contracts test`.
-The example tests check failure-envelope preservation and codec validation; they
-do not establish runtime engine conformance. The private contracts manifest is tooling
+The example tests check failure-envelope preservation and codec validation. The
+local recovery tests exercise concrete storage and local session behavior; neither
+suite establishes remote engine conformance. The private contracts manifest is tooling
 only; it does not turn the repository into a published library package.
