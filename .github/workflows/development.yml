@@ -1,0 +1,40 @@
+name: Development
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: development-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node scripts/check-repository.mjs
+      - name: Detect package
+        id: package
+        run: |
+          if test -f package.json; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'No package exists yet; runtime checks are not available.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: pnpm/action-setup@v4
+        if: steps.package.outputs.exists == 'true'
+      - name: Validate library
+        if: steps.package.outputs.exists == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
+          pnpm run build
+          pnpm run test:package
