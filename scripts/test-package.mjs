@@ -9,7 +9,12 @@ const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const temp = mkdtempSync(join(tmpdir(), 'draft-package-'));
 const run = (cmd, args, cwd) => {
   try { return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }); }
-  catch (error) { if (error.stdout) console.error(error.stdout); throw error; }
+  catch (error) {
+    if (error.stdout) {
+      console.error(error.stdout);
+    }
+    throw error;
+  }
 };
 const write = (dir, file, value) => writeFileSync(join(dir, file), value);
 try {

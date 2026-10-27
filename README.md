@@ -83,7 +83,8 @@ React is an optional peer so core-only applications do not install it; it is
 required when using the hook. The React entry preserves its `"use client"` directive.
 
 Supported package format is ESM (no CommonJS export), targeting ES2022. Node.js
-24+ is required for development and server use. React 18.3.1+ and 19 are supported;
+22.14+ is supported for consumers in the next release; published beta.0 requires
+Node 24. Development and source tests use Node 24+. React 18.3.1+ and 19 are supported;
 the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNext
 and Bundler resolution. Browser applications need a modern ES2022-capable runtime
 and bundler; browser storage remains optional through the storage adapter.
@@ -96,7 +97,8 @@ and bundler; browser storage remains optional through the storage adapter.
 - [x] Add React hooks and a minimal example application.
 - [ ] Verify account isolation, competing tabs, storage failures, and server rendering.
 - [x] Validate the packed package in independent npm and pnpm consumer applications.
-- [ ] Publish a beta with documentation and a repeatable release workflow.
+- [x] Publish the initial beta with documentation.
+- [ ] Configure and verify trusted publishing for repeatable automated releases.
 - [ ] Stabilize the API based on real usage and feedback.
 
 ## Contributing

@@ -148,11 +148,14 @@ test('late save after disposal cannot mutate old or new account controllers', as
   assert.throws(() => old.update({ title: 'No' })); assert.throws(() => old.restore()); assert.throws(() => old.subscribe(() => {}));
 });
 
-test('load failures preserve local editing, and reload establishes a base without overwriting input', async () => {
+test('load failures preserve local editing, and reload requires reconciliation of pre-discovery edits', async () => {
   const f = fixture(); f.remote.load = async () => { throw new Error('offline'); };
   const c = await ready(f); assert.equal(c.getSnapshot().remote.kind, 'failed'); c.update({ title: 'Edited' }); await c.persistLocal();
   assert.equal((await c.save()).code, 'remote_not_ready'); f.remote.load = async () => ok(present('r3', 'Server'));
-  await c.reloadRemote(); assert.equal(c.getSnapshot().value.title, 'Edited'); await c.save(); assert.equal(f.calls[0].expectedRevision, 'r3');
+  await c.reloadRemote(); assert.equal(c.getSnapshot().value.title, 'Edited');
+  assert.equal((await c.save()).code, 'reconciliation_required');
+  assert.equal(c.reconcile(present('r3', 'Server'), { title: 'Edited' }).kind, 'ok');
+  await c.save(); assert.equal(f.calls[0].expectedRevision, 'r3');
 });
 
 test('remote-disabled controllers persist locally and return explicit remote guards', async () => {
@@ -471,4 +474,46 @@ test('local revalidation drains in-flight writes and retains storage read failur
   assert.equal(c.getSnapshot().error.code, 'offline');
   assert.equal(c.getSnapshot().value.title, 'pending');
   c.dispose(); assert.equal((await c.refreshLocal()).code, 'disposed');
+});
+
+test('a saved local draft reopens with the acknowledged revision and can save without a self-conflict', async () => {
+  const f = fixture(); let server = present('r0', 'Initial');
+  f.remote.load = async () => ok(server);
+  f.remote.save = async request => {
+    if (request.expectedRevision !== server.revision) return { kind: 'conflict', current: server };
+    server = present(server.revision === 'r0' ? 'r1' : 'r2', request.value.title);
+    return ok(server);
+  };
+  const c = await ready(f); c.update({ title: 'Saved' }); await c.persistLocal();
+  await c.save(); assert.equal(c.getSnapshot().dirty, false);
+  assert.equal(f.record().baseRevision, 'r1'); c.dispose();
+  const reopened = await ready(f); reopened.restore(); await reopened.persistLocal();
+  assert.equal((await reopened.save()).kind, 'ok'); reopened.dispose();
+});
+
+test('pre-discovery edits retain unknown ancestry both before and after reopening', async () => {
+  const f = fixture(); const gate = deferred(); f.remote.load = () => gate.promise;
+  const c = await f.open(); c.update({ title: 'Typed before loading' }); await c.persistLocal();
+  const loaded = new Promise(resolve => { const unsub = c.subscribe(() => { if (c.getSnapshot().remote.kind === 'ready') { unsub(); resolve(); } }); });
+  gate.resolve(ok(present('r5', 'Server'))); await loaded;
+  assert.equal((await c.save()).code, 'reconciliation_required');
+  assert.equal(f.calls.length, 0); assert.equal(f.record().baseRevision, null); c.dispose();
+  const reopened = await ready(f); reopened.restore(); await reopened.persistLocal();
+  assert.equal((await reopened.save()).code, 'reconciliation_required');
+  assert.equal(reopened.reconcile(present('r5', 'Server'), { title: 'Merged' }).kind, 'ok');
+  await reopened.save(); assert.equal(f.calls[0].expectedRevision, 'r5'); reopened.dispose();
+});
+
+test('save acknowledgement drains older local writes and retains edits made during the rewrite', async () => {
+  const f = fixture(); const gate = deferred(); const saving = deferred(); const write = f.storage.write;
+  let first = true;
+  f.storage.write = async (...args) => { if (first) { first = false; await gate.promise; } return write(...args); };
+  f.remote.save = async request => { saving.resolve(); return ok(present('r1', request.value.title)); };
+  const c = await ready(f); c.update({ title: 'A' }); const saved = c.save();
+  await saving.promise; c.update({ title: 'B' });
+  assert.equal((await c.save()).code, 'operation_in_progress');
+  gate.resolve(); await saved;
+  assert.equal(c.getSnapshot().dirty, true);
+  assert.equal(JSON.parse(f.record().payload).title, 'B');
+  assert.equal(f.record().baseRevision, 'r1'); c.dispose();
 });

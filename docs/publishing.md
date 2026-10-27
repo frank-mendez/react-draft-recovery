@@ -1,7 +1,8 @@
 # Development, changelog and publishing
 
 The repository builds the MIT-licensed `react-draft-recovery` ESM package.
-`0.1.0-beta.0` was published with the `beta` tag from commit `2890d88`.
+`0.1.0-beta.0` was published with the `beta` tag from tag [`v0.1.0-beta.0`](https://github.com/frank-mendez/react-draft-recovery/tree/v0.1.0-beta.0)
+(commit `2890d88`). This tag preserves the exact published source even if the PR is squash-merged.
 Future automated releases still require the trusted publisher configuration below.
 
 ## Development
@@ -30,8 +31,10 @@ installation without React, plus React 18.3.1 and 19.2.0 consumers with SSR and
 TypeScript 5.9.3 in NodeNext and Bundler modes. It checks the packed license,
 file allowlist, declarations, exports and preserved client directive. Temporary
 projects are removed even on failure. The existing React suite tests browser
-lifecycle behavior separately. ESM/ES2022 and Node 24+ are supported; no CommonJS
-entry or older TypeScript compatibility is advertised.
+lifecycle behavior separately. ESM/ES2022 and Node 22.14+ consumers are supported; no CommonJS
+entry or older TypeScript compatibility is advertised. CI runs packed consumer checks
+on Node 22.14 as well as Node 24. The already-published beta.0 manifest requires
+Node 24; the broader engine range applies to the next release.
 
 ## Changelog and versions
 

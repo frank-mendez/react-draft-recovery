@@ -45,3 +45,17 @@ jobs:
       - run: npm run --prefix react typecheck
       - run: npm test --prefix react
       - run: npm run --prefix react build
+
+  package-node22:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:package
+        env:
+          npm_config_engine_strict: 'true'
