@@ -27,6 +27,7 @@ interface Operation<T> {
   readonly kind: 'save' | 'discard';
   readonly request: Mutation & { readonly value?: T };
   readonly generation: number;
+  readonly baseEpoch: number;
   readonly started: number;
   attempts: number;
   retryAt: number;
@@ -65,15 +66,17 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     } catch { /* Invalid input remains editable; local persistence exposes the error. */ }
     try { return freeze(structuredClone(value)); } catch { return value; }
   };
+  // Undefined means initial discovery has not established a base; null means a
+  // restored draft has unknown ancestry and needs explicit reconciliation.
+  let activeBase: string | null | undefined;
+  let baseEpoch = 0;
   let remoteState: RecoveryState<T>['remote'] = remote ? { kind: 'loading' } : { kind: 'disabled' };
   const extended = storage as Partial<LocalStorageAdapter>;
   const localResult = await createLocalRecovery({
     scope, initialValue: capture(options.initialValue), codec,
     storage: {
       read: scope => storage.read(scope),
-      write: (scope, record, origin) => (storage as LocalStorageAdapter).write(scope, {
-        ...record, baseRevision: remoteState.kind === 'ready' ? remoteState.snapshot.revision : record.baseRevision,
-      }, origin),
+      write: (scope, record, origin) => (storage as LocalStorageAdapter).write(scope, record, origin),
       remove: (scope, origin) => (storage as LocalStorageAdapter).remove(scope, origin),
       clearUser: user => extended.clearUser ? extended.clearUser.call(storage, user) : Promise.resolve(fail('unsupported')),
       subscribe: (scope, listener) => extended.subscribe ? extended.subscribe.call(storage, scope, listener) : () => {},
@@ -111,6 +114,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
   // Coalesce edits while a storage write is pending; preserve the newest input.
   let localTask: Promise<Result<void>> | null = null;
   let localRequested = false;
+  let localRemoval: Promise<Result<void>> | null = null;
   const persistLocal = (): Promise<Result<void>> => {
     if (disposed) return Promise.resolve(fail('disposed'));
     localRequested = true;
@@ -121,7 +125,11 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     const task = localTask;
     void (async () => {
       let result: Result<void> = ok(undefined);
-      do { localRequested = false; result = await local.persist(); }
+      do {
+        if (localRemoval) await localRemoval;
+        if (disposed) break;
+        localRequested = false; result = await local.persist(activeBase ?? null);
+      }
       while (localRequested && !disposed);
       localTask = null;
       finish(disposed ? fail('disposed') : result);
@@ -152,6 +160,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     catch { result = unavailable(); }
     if (disposed) return fail('disposed');
     loading = false;
+    if (result.kind === 'ok' && activeBase === undefined) activeBase = result.value.revision;
     remoteError = result.kind === 'ok' ? null : result;
     remoteState = Object.freeze(result.kind === 'ok' ? { kind: 'ready', snapshot: result.value } : { kind: 'failed', error: result });
     status = result.kind === 'ok' ? 'idle' : 'error'; publish();
@@ -165,6 +174,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     if (kind !== 'retry' && operation?.outcome === 'conflict') return fail('reconciliation_required');
     if (remoteState.kind !== 'ready') return fail('remote_not_ready');
     if (inFlight) return fail('operation_in_progress');
+    if (kind !== 'retry' && activeBase === null) return fail('reconciliation_required');
     if (kind === 'retry') {
       if (!operation || !['unknown', 'retryable'].includes(operation.outcome ?? '')) return fail('no_pending_operation');
       const currentTime = time();
@@ -197,6 +207,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       case 'ok':
         remoteState = Object.freeze({ kind: 'ready', snapshot: result.value });
         if (op.kind === 'save') acknowledged = op.generation;
+        if (op.baseEpoch === baseEpoch) activeBase = result.value.revision;
         operation = null; status = 'idle'; break;
       case 'conflict':
         op.outcome = 'conflict'; status = 'conflict';
@@ -218,6 +229,8 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     // Guard codec/ID callbacks as well as adapter calls and notifications.
     inFlight = true;
     const savedGeneration = generation;
+    const savedBaseEpoch = baseEpoch;
+    const expectedRevision = activeBase!;
     const data = kind === 'save' ? detached(state.value) : ok(undefined);
     let id = '';
     try { id = operationId(); } catch { /* reported below */ }
@@ -231,9 +244,9 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     if (!Number.isFinite(started)) { inFlight = false; return Promise.resolve(fail('invalid_clock')); }
     usedIds.add(id);
     const request = Object.freeze({ scope, operationId: id,
-      expectedRevision: (remoteState as Extract<typeof remoteState, { kind: 'ready' }>).snapshot.revision,
+      expectedRevision,
       ...(kind === 'save' ? { value: data.value as T } : {}) });
-    operation = { kind, request, generation: savedGeneration, started, attempts: 0, retryAt: 0, outcome: null };
+    operation = { kind, request, generation: savedGeneration, baseEpoch: savedBaseEpoch, started, attempts: 0, retryAt: 0, outcome: null };
     return dispatch(operation);
   };
   const controller: RecoveryController<T> = {
@@ -253,17 +266,25 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       let result: Result<void>;
       try { result = local.restore(); } finally { changingLocal = false; }
       if (result.kind !== 'ok') actionError = result;
-      else if (available) { generation++; actionError = null; }
+      else if (available) {
+        generation++; baseEpoch++; activeBase = local.getSnapshot().baseRevision; actionError = null;
+      }
       publish(); if (result.kind === 'ok' && available) void persistLocal();
     },
     save: () => mutate('save'),
     discardRemote: () => mutate('discard'),
     retry() { const blocked = guard('retry'); return blocked ? Promise.resolve(blocked) : dispatch(operation!); },
     persistLocal,
-    async discardLocal() {
-      if (disposed) return fail('disposed');
-      // The local primitive serializes removal against its writes.
-      return local.discard();
+    discardLocal() {
+      if (disposed) return Promise.resolve(fail('disposed'));
+      if (localTask || localRemoval) return Promise.resolve(fail('operation_in_progress'));
+      let finish!: (result: Result<void>) => void;
+      localRemoval = new Promise(resolve => { finish = resolve; });
+      const task = localRemoval;
+      void local.discard().then(result => {
+        localRemoval = null; finish(disposed ? fail('disposed') : result);
+      });
+      return task;
     },
     reloadRemote() {
       if (disposed) return Promise.resolve(fail('disposed'));
@@ -273,10 +294,11 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     },
     reconcile(current, value) {
       if (disposed) return fail('disposed');
-      if (inFlight || !operation || !(operation.outcome === 'conflict' ||
-        ((operation.outcome === 'unknown' || operation.outcome === 'retryable') && expired(operation)))) return fail('invalid_reconciliation_state');
+      if (!remote || inFlight || loading || !(activeBase === null && !operation || operation && (operation.outcome === 'conflict' ||
+        ((operation.outcome === 'unknown' || operation.outcome === 'retryable') && expired(operation))))) return fail('invalid_reconciliation_state');
       const checked = snapshot(current); if (checked.kind !== 'ok') return checked;
-      operation = null; remoteState = Object.freeze({ kind: 'ready', snapshot: checked.value });
+      operation = null; activeBase = checked.value.revision; baseEpoch++;
+      remoteState = Object.freeze({ kind: 'ready', snapshot: checked.value });
       remoteError = null; actionError = null; status = 'idle';
       controller.update(value); return ok(undefined);
     },

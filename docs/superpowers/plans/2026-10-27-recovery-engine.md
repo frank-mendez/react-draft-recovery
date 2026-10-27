@@ -38,3 +38,11 @@ The user requested implementation and a PR after reviewing the existing contract
 - Independent review found codec reentry acknowledging unpublished generations, two-read retry clock safety, and mutable error return values. All three reproduced as failing tests and fixed; full suite 70/70.
 - Locked dependency installation, strict typecheck, repository metadata check and whitespace validation pass.
 - No review findings deferred.
+
+## Review feedback follow-up
+
+- Reproduced five failures covering stale restore ancestry, local edits during removal, dirty reloads, edits during reload, and stale restore during an in-flight save.
+- Separate the active input base from observed remote state. Preserve restored revision metadata, including null/unknown ancestry; reconciliation explicitly chooses a new base.
+- Serialize local persistence behind an engine-managed removal task, retaining automatic writes requested during removal.
+- Added eight regression tests in total, including automatic persistence, unknown-base recovery and disabled-remote guards. Strict typecheck and full suite pass (78/78).
+- Independent review confirmed one additional missing remote guard for null-base reconciliation; regression reproduced and fixed. No findings deferred.

@@ -319,6 +319,8 @@ test('nullable local candidates can be restored and saved remotely', async () =>
   await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: null, dataVersion: 1, payload: 'null', savedAt: '2026-10-27T00:00:00Z' });
   f.remote.save = async request => ok({ kind: 'present', revision: 'r1', value: request.value });
   const c = await ready(f); assert.equal(c.getSnapshot().candidate.kind, 'available'); c.restore(); await c.persistLocal();
+  assert.equal((await c.save()).code, 'reconciliation_required');
+  assert.equal(c.reconcile(absent('r0'), null).kind, 'ok');
   await c.save(); assert.equal(c.getSnapshot().value, null); assert.equal(c.getSnapshot().dirty, false);
 });
 
@@ -357,4 +359,80 @@ test('codec callbacks during update cannot acknowledge an unpublished input gene
   controller = await ready(f); controller.update({ title: 'B' }); await nested;
   assert.equal(controller.getSnapshot().value.title, 'B');
   assert.equal(controller.getSnapshot().dirty, true);
+});
+
+test('restored stale drafts retain their base revision and conflict with newer remote data', async () => {
+  const f = fixture(); f.remote.load = async () => ok(present('r3', 'Newer'));
+  f.remote.save = async request => { f.calls.push(request); return request.expectedRevision === 'r3' ? ok(present('r4', request.value.title)) : { kind: 'conflict', current: present('r3', 'Newer') }; };
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1, payload: '{"title":"Stale"}', savedAt: '2026-10-27T00:00:00Z' });
+  const c = await ready(f); c.restore(); await c.persistLocal();
+  assert.equal(f.record().baseRevision, 'r1');
+  assert.equal((await c.save()).kind, 'conflict'); assert.equal(f.calls[0].expectedRevision, 'r1');
+  c.update({ title: 'Still based on stale input' }); await c.persistLocal(); assert.equal(f.record().baseRevision, 'r1');
+});
+
+test('edits during local discard are persisted after removal completes', async () => {
+  const f = fixture(); const gate = deferred(); const written = deferred(); const remove = f.storage.remove; const write = f.storage.write;
+  f.storage.remove = async () => { await gate.promise; return remove(); };
+  const c = await ready(f); c.update({ title: 'Before' }); await c.persistLocal();
+  f.storage.write = async (...args) => { const result = await write(...args); written.resolve(); return result; };
+  const removing = c.discardLocal(); c.update({ title: 'During removal' });
+  // Explicit flush must also wait, rather than return operation_in_progress.
+  const flushing = c.persistLocal(); gate.resolve(); await removing;
+  assert.equal((await flushing).kind, 'ok'); await written.promise;
+  assert.equal(JSON.parse(f.record().payload).title, 'During removal');
+});
+
+test('remote reload while dirty observes newer data without rebasing the next save', async () => {
+  const f = fixture(); const c = await ready(f); c.update({ title: 'Mine' }); await c.persistLocal();
+  f.remote.load = async () => ok(present('r3', 'Other writer')); await c.reloadRemote();
+  await c.persistLocal(); assert.equal(f.record().baseRevision, 'r0');
+  await c.save(); assert.equal(f.calls[0].expectedRevision, 'r0');
+});
+
+test('editing during a remote reload retains the pre-load base revision', async () => {
+  const f = fixture(); const c = await ready(f); const gate = deferred(); f.remote.load = () => gate.promise;
+  const loading = c.reloadRemote(); c.update({ title: 'Edited during load' });
+  gate.resolve(ok(present('r3', 'Other writer'))); await loading;
+  await c.save(); assert.equal(f.calls[0].expectedRevision, 'r0');
+});
+
+test('save completion cannot rebase a stale draft restored while it was pending', async () => {
+  const f = fixture(); const gate = deferred(); f.remote.save = request => { f.calls.push(request); return gate.promise; };
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'old', dataVersion: 1, payload: '{"title":"Stale"}', savedAt: '2026-10-27T00:00:00Z' });
+  const c = await ready(f); const saving = c.save(); c.restore(); await c.persistLocal();
+  gate.resolve(ok(present('r1', 'Initial'))); await saving;
+  await c.persistLocal(); assert.equal(f.record().baseRevision, 'old');
+  await c.save(); assert.equal(f.calls[1].expectedRevision, 'old');
+});
+
+test('automatic local persistence resumes after discard without an explicit flush', async () => {
+  const f = fixture(); const gate = deferred(); const written = deferred(); const remove = f.storage.remove; const write = f.storage.write;
+  f.storage.remove = async () => { await gate.promise; return remove(); };
+  const c = await ready(f);
+  f.storage.write = async (...args) => { const result = await write(...args); written.resolve(); return result; };
+  const removing = c.discardLocal(); c.update({ title: 'Automatic' }); gate.resolve();
+  await removing; await written.promise;
+  assert.equal(JSON.parse(f.record().payload).title, 'Automatic');
+});
+
+test('restoring an unknown-base draft before discovery requires explicit reconciliation', async () => {
+  const f = fixture(); const load = deferred(); f.remote.load = () => load.promise;
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: null, dataVersion: 1, payload: '{"title":"Unknown ancestry"}', savedAt: '2026-10-27T00:00:00Z' });
+  const c = await f.open(); c.restore(); await c.persistLocal();
+  const loaded = new Promise(resolve => { const unsubscribe = c.subscribe(() => { if (c.getSnapshot().remote.kind === 'ready') { unsubscribe(); resolve(); } }); });
+  load.resolve(ok(present('r3', 'Other writer'))); await loaded;
+  assert.equal((await c.save()).code, 'reconciliation_required'); assert.equal(f.calls.length, 0);
+  assert.equal(f.record().baseRevision, null);
+  assert.equal(c.reconcile(present('r3', 'Other writer'), { title: 'Chosen merge' }).kind, 'ok');
+  await c.persistLocal(); assert.equal(f.record().baseRevision, 'r3');
+  await c.save(); assert.equal(f.calls[0].expectedRevision, 'r3');
+});
+
+test('unknown-base restoration cannot enable remote reconciliation without an adapter', async () => {
+  const f = fixture({ remote: undefined });
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: null, dataVersion: 1, payload: '{"title":"Local"}', savedAt: '2026-10-27T00:00:00Z' });
+  const c = await f.open(); c.restore();
+  assert.equal(c.reconcile(absent('r0'), { title: 'Chosen' }).code, 'invalid_reconciliation_state');
+  assert.equal(c.getSnapshot().remote.kind, 'disabled');
 });

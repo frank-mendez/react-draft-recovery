@@ -44,7 +44,10 @@ I/O. `persist` immediately encodes a detached snapshot. If discovery is in progr
 it waits for the latest read before writing: absence allows the write, a candidate
 requires an explicit recovery decision, and a read failure is returned unchanged.
 Edits made while discovery or the write is pending remain dirty. Dirty here tracks local persistence only,
-not remote acknowledgement. There is no background scheduling. Keep application
+not remote acknowledgement. Snapshot `baseRevision` exposes the initial/restored
+input revision. `persist(baseRevision)` optionally supplies a revision for that
+write only; the revision and payload are captured together before asynchronous
+discovery or writing. There is no background scheduling. Keep application
 values immutable and have the codec validate unknown data before returning it.
 
 ## Envelope, identity and migrations

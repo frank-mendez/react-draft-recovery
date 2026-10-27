@@ -32,7 +32,11 @@ if (opened.kind === 'ok') {
 ```
 
 Creation awaits local candidate discovery, but never remote discovery. Remote load
-completion establishes a base revision without replacing active input. A hung or
+completion establishes the initial input base without replacing active input. Later
+loads update observed remote state without advancing that base. Restoring a draft
+uses its stored revision, so restoring r1 after observing r3 still saves against r1
+and conflicts. A null restored base requires explicit reconciliation; it is never
+replaced silently with the latest observed revision. A hung or
 failed backend does not hide the local recovery candidate. A local failure remains
 visible even when a remote operation succeeds. Without a remote adapter, all remote
 actions return `remote_unavailable` and local persistence still works.
@@ -63,7 +67,9 @@ Updates/restoration start local persistence immediately. While one write is pend
 subsequent edits coalesce into a write of the newest value. `persistLocal()` retries
 local storage and resolves after that queue drains. It neither saves remotely nor
 clears remote dirty state. Local errors remain in `state.error` until corrected.
-Local records include the known remote base revision at local write dispatch.
+Local records retain the active draft's base revision, captured with its payload.
+A remote conflict or reload cannot re-stamp an older draft with a newer revision.
+An older in-flight success cannot advance the base of a newly restored draft.
 
 Existing/corrupt recovery records are protected by the local primitive until an
 explicit restore/discard. Restore failures are visible in `state.error`; restore
@@ -71,7 +77,8 @@ returns void to match the controller contract. A restore during a remote save
 creates a newer dirty generation. A restore during local discovery/write is guarded.
 `discardLocal()` uses the local mutation guard: if a local write is active it returns
 `operation_in_progress`; await `persistLocal()` and explicitly discard afterward.
-Remote saves do not themselves block local discard. Successful local discard keeps
+Edits made while removal is pending queue a new write after removal settles,
+including automatic writes without an explicit flush. Remote saves do not themselves block local discard. Successful local discard keeps
 active input; only a subsequent edit/restore/persist request recreates the record.
 
 Adapters exposing the local primitive's optional subscription API retain competing
@@ -94,7 +101,7 @@ Adapters/backends must enforce their own idempotency contract. `now` may be inje
 for deterministic host clocks/tests; invalid or backward readings fail closed.
 The engine does not automatically load or resend after deadline expiry.
 
-After a conflict, or an unknown/retryable result past its safe replay deadline, load
+After restoring an unknown-base draft, a conflict, or an unknown/retryable result past its safe replay deadline, load
 fresh state directly through the remote adapter, obtain the application's/user's
 explicit reconciliation choice, and call `reconcile(current, chosenValue)`. This
 sets a new base and dirty value, without sending a remote mutation. A subsequent

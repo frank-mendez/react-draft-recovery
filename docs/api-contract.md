@@ -36,7 +36,7 @@ snapshot with a revision. Absence has a stable server revision too: initial abse
 must have a token, and discard creates a new tombstone token. Tokens must not be
 reused after create/delete/recreate (avoid the ABA problem).
 
-Every save and discard supplies the last loaded expectedRevision. The backend
+Every save and discard supplies the active draft's base as expectedRevision. Initial discovery establishes that base; subsequent reads only update observed remote state. Restoring a local draft preserves its recorded base, so stale drafts conflict with newer remote revisions. A restored null base requires explicit reconciliation before remote mutation. The backend
 atomically compares that token and changes the record only on equality. A mismatch
 returns `conflict` with the current snapshot and does not modify it. A successful
 mutation returns a new revision and the committed snapshot. Saves return present;
@@ -109,7 +109,7 @@ provide atomic local compare-and-swap.
 `persistLocal` writes/retries the latest local recovery snapshot and awaits queued local writes; it does not acknowledge remote persistence. Updates and restoration schedule local persistence automatically.
 
 `discardLocal` removes the recovery record only, retaining active input and remote
-state. `discardRemote` deletes only the scoped remote draft using the same revision
+state. Edits made during removal queue local persistence until removal settles; they are not dropped. A discard requested during an existing local write is guarded with `operation_in_progress`. `discardRemote` deletes only the scoped remote draft using the same revision
 and idempotency protocol as save; it does not delete a published application record,
 local recovery or active input. Applications explicitly compose these actions.
 A failed remote discard must not silently clear local recovery.
@@ -134,8 +134,7 @@ remote loading sets status `loading`; completion sets `idle` or `error`, preserv
 any local error. Local restore/update remain usable while loading or failed.
 `reloadRemote` retries discovery after failure, sets remote/status to loading, and
 returns the read result. It may run only while idle or error with no pending mutation; otherwise it returns
-permanent `operation_in_progress` without changing state. A successful load establishes
-the remote base without replacing active input. A failed load sets remote to failed.
+permanent `operation_in_progress` without changing state. The first successful load establishes the base for initial input. Later loads refresh observed remote state without rebasing active input, even when clean; only a successful mutation in the same draft lineage or explicit reconciliation advances its base. A failed load sets remote to failed.
 A controller with remote disabled starts idle (or error for a local failure).
 Remote mutation methods require a ready remote base. Dirty is measured against the last acknowledged active-data generation,
 not just the presence of a remote draft; initial input is clean until update/restore.
@@ -146,7 +145,7 @@ only that generation is acknowledged; subsequent edits remain dirty and intact.
 requires explicit reconciliation and a fresh save against the chosen current revision;
 `reconcile(current, value)` explicitly accepts a freshly loaded/current conflict
 snapshot as the new base and the application-selected active value, marks it dirty,
-and clears the failed/pending operation. It is allowed only after a conflict or
+and clears the failed/pending operation. It is allowed after restoring a draft with an unknown (null) base, after a conflict, or
 after an unknown or retryable operation has exhausted its safe replay window; the application
 must confirm this choice. For reconciliation the application loads a fresh snapshot
 through its remote adapter directly; this read does not change controller state.
