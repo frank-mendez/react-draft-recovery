@@ -98,3 +98,13 @@ If the post-publish check fails, inspect the registry before retrying. If the ve
 ## Stable promotion
 
 In a reviewed change to release-please-config.json, remove `prerelease-type`, set `prerelease` to false and `versioning` to `default`, and temporarily set `release-as` to the intended stable version (for example `0.1.0`). Review the generated release PR, package version and changelog; merge only after validation passes. Remove the one-time `release-as` override afterward. Publish its stable tag through release.yml; the workflow selects `latest`. Verify the stable version with `--require-provenance`. Retain the beta channel for prerelease consumers; do not move it to stable implicitly.
+
+### Registry propagation after publishing
+
+npm may accept an upload before its read endpoints expose the version. Metadata
+verification retries npm E404 responses up to 12 attempts, ten seconds apart.
+Authentication, malformed responses and verification failures still fail immediately.
+If publication succeeded but verification failed, run **Verify published npm release**
+(`verify-release.yml`) from main with the published tag. This workflow uses current
+verification tooling and performs no publication. Do not rerun the original publish
+job for a version that already exists.
