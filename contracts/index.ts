@@ -1,13 +1,12 @@
 /** Design contract only: no runtime factory or published entry point yet. */
-export type Revision = string;
 export interface Scope {
   readonly userId: string;
   readonly documentId: string;
   readonly editorId: string;
 }
 export type Snapshot<T> =
-  | { readonly kind: 'present'; readonly revision: Revision; readonly value: T }
-  | { readonly kind: 'absent'; readonly revision: Revision };
+  | { readonly kind: 'present'; readonly revision: string; readonly value: T }
+  | { readonly kind: 'absent'; readonly revision: string };
 export type Failure =
   | { readonly kind: 'retryable'; readonly message: string; readonly retryAfterMs?: number }
   | { readonly kind: 'permanent'; readonly message: string; readonly code: string };
@@ -17,7 +16,7 @@ export type MutationResult<T> = Result<Snapshot<T>>
   | { readonly kind: 'unknown'; readonly message: string };
 export interface Mutation {
   readonly scope: Scope;
-  readonly expectedRevision: Revision;
+  readonly expectedRevision: string;
   readonly operationId: string;
 }
 export interface RemoteAdapter<T> {
@@ -30,7 +29,7 @@ export interface RemoteAdapter<T> {
 export interface LocalRecord {
   readonly formatVersion: 1;
   readonly scope: Scope;
-  readonly baseRevision: Revision | null;
+  readonly baseRevision: string | null;
   readonly dataVersion: number;
   readonly payload: string;
   readonly savedAt: string;
@@ -47,12 +46,17 @@ export interface Codec<T> {
   /** Validate unknown data; migrate explicitly or return a permanent failure. */
   decode(payload: string, version: number): Result<T>;
 }
+export type RemoteState<T> =
+  | { readonly kind: 'disabled' }
+  | { readonly kind: 'loading' }
+  | { readonly kind: 'ready'; readonly snapshot: Snapshot<T> }
+  | { readonly kind: 'failed'; readonly error: Failure };
 export type RecoveryState<T> = {
   readonly value: T;
   readonly dirty: boolean;
   readonly candidate: { readonly kind: 'none' } | { readonly kind: 'available'; readonly value: T };
-  readonly remote: Snapshot<T> | null;
-  readonly status: 'idle' | 'saving' | 'conflict' | 'unknown' | 'error';
+  readonly remote: RemoteState<T>;
+  readonly status: 'idle' | 'loading' | 'saving' | 'discarding' | 'conflict' | 'unknown' | 'error';
   readonly error: Failure | null;
 };
 export interface RecoveryController<T> {
@@ -61,7 +65,8 @@ export interface RecoveryController<T> {
   update(value: T): void;
   restore(): void;
   /** Explicit user/application reconciliation; never an automatic overwrite. */
-  reconcile(current: Snapshot<T>, value: T): void;
+  reconcile(current: Snapshot<T>, value: T): Result<void>;
+  reloadRemote(): Promise<Result<Snapshot<T>>>;
   save(): Promise<MutationResult<T>>;
   retry(): Promise<MutationResult<T>>;
   discardLocal(): Promise<Result<void>>;

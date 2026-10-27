@@ -1,4 +1,4 @@
-import type { Codec, Mutation, MutationResult, RemoteAdapter, RecoveryState, Scope, StorageAdapter } from './index.js';
+import type { Codec, Mutation, MutationResult, RemoteAdapter, RecoveryState, Result, Scope, StorageAdapter } from './index.js';
 
 type Draft = { title: string };
 export const codec: Codec<Draft> = {
@@ -24,11 +24,11 @@ export async function saveLoaded(remote: RemoteAdapter<Draft>, scope: Scope,
   return remote.save({ scope, operationId, expectedRevision: loaded.value.revision, value });
 }
 
-export async function readCandidate(storage: StorageAdapter, scope: Scope): Promise<unknown> {
+export async function readCandidate(storage: StorageAdapter, scope: Scope): Promise<Result<unknown>> {
   const result = await storage.read(scope);
-  if (result.kind !== 'ok') return result;
-  // The engine must validate the envelope before decoding, including scope.
-  return result.value;
+  // Preserve the result envelope: raw data can itself resemble a Failure object.
+  // The engine must validate result.value before decoding, including scope.
+  return result;
 }
 
 export function describe(result: MutationResult<Draft>): string {
@@ -49,9 +49,21 @@ const missingRevision: Mutation = { scope, operationId: 'operation' };
 const missingTombstone: MutationResult<Draft> = { kind: 'ok', value: { kind: 'absent' } };
 // @ts-expect-error Unknown outcome must not be represented as success.
 const unknownSuccess: MutationResult<Draft> = { kind: 'unknown', value: { kind: 'absent', revision: 'r1' } };
-void [missingRevision, missingTombstone, unknownSuccess];
+export { missingRevision, missingTombstone, unknownSuccess };
 
 // Nullable application data remains distinct from an absent recovery candidate.
 const nullCandidate: RecoveryState<null>['candidate'] = { kind: 'available', value: null };
 const noCandidate: RecoveryState<null>['candidate'] = { kind: 'none' };
-void [nullCandidate, noCandidate];
+export { nullCandidate, noCandidate };
+
+// Remote failures and absence are different states; neither hides local candidates.
+export const failedRemote: RecoveryState<Draft>['remote'] = {
+  kind: 'failed', error: { kind: 'retryable', message: 'Offline' },
+};
+export const absentRemote: RecoveryState<Draft>['remote'] = {
+  kind: 'ready', snapshot: { kind: 'absent', revision: 'r0' },
+};
+// @ts-expect-error A failed load must expose its error.
+export const missingLoadError: RecoveryState<Draft>['remote'] = { kind: 'failed' };
+// @ts-expect-error Raw records must remain inside the successful result envelope.
+export const rawCandidate: Awaited<ReturnType<typeof readCandidate>> = { title: 'Draft' };

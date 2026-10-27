@@ -9,9 +9,15 @@ backend adapters remain separate implementation work. Names may change before be
 
 The core has no React, browser, server framework or database dependency. A future
 `CreateRecovery` factory accepts initial data, a codec, storage and optionally a
-remote adapter; it returns a controller after loading recovery candidates. Loading
+remote adapter; it returns a controller after attempting local candidate discovery. Local storage or
+codec failures leave the candidate empty and expose the failure in state.error;
+they do not prevent creation. Only invalid options (permanent `invalid_options`)
+fail creation. A configured remote load starts in the background and is never
+awaited by creation: a slow, failed or hung backend cannot hide local recovery.
+Remote load completion cannot replace active input or the local candidate. Loading
 must not replace initial input. A missing local record is `ok` with `null`.
-Storage reads otherwise return `unknown`, including malformed data.
+Storage reads otherwise return untyped data (TypeScript `unknown`), including malformed data.
+This is distinct from the `unknown` mutation outcome.
 
 A scope is the exact tuple (userId, documentId, editorId). Encode it unambiguously
 (for example, a JSON array, not delimiter concatenation). Every remote operation,
@@ -102,9 +108,10 @@ and idempotency protocol as save; it does not delete a published application rec
 local recovery or active input. Applications explicitly compose these actions.
 A failed remote discard must not silently clear local recovery.
 
-Serialize mutations per controller. If discard is requested during an unresolved
-save, settle/reconcile that save first, then obtain explicit confirmation against
-the resulting revision before discarding. Never send an unconditional delete.
+Serialize mutations per controller. Discard requested during an in-flight or
+unresolved save returns the guard failure below rather than silently queuing.
+Settle/reconcile that save first, then obtain explicit confirmation against
+the resulting revision before calling discard again. Never send an unconditional delete.
 Across controllers/tabs, stale saves or deletes conflict against the new tombstone
 or saved revision; they cannot resurrect or erase a newer draft silently.
 
@@ -115,28 +122,62 @@ notifies on changes and returns an unsubscribe function. `update` changes active
 input and marks it dirty. `restore` explicitly applies the loaded local candidate
 and marks it dirty; candidate kind `none` means no change. An `available` candidate
 can contain null when the application data type permits it. Candidate discovery never applies
-input automatically. Initial remote load populates remote state without replacing
-active input. Dirty is measured against the last acknowledged active-data generation,
+input automatically. Remote state is a discriminated union: `disabled` (no adapter), `loading`,
+`ready` with a present/absent snapshot, or `failed` with its load error. Initial
+remote loading sets status `loading`; completion sets `idle` or `error`, preserving
+any local error. Local restore/update remain usable while loading or failed.
+`reloadRemote` retries discovery after failure, sets remote/status to loading, and
+returns the read result. It may run only while idle or error with no pending mutation; otherwise it returns
+permanent `operation_in_progress` without changing state. A successful load establishes
+the remote base without replacing active input. A failed load sets remote to failed.
+A controller with remote disabled starts idle (or error for a local failure).
+Remote mutation methods require a ready remote base. Dirty is measured against the last acknowledged active-data generation,
 not just the presence of a remote draft; initial input is clean until update/restore.
 
-`save` freezes the current generation and queues a single mutation. On completion,
+`save` freezes the current generation and dispatches a single mutation after the guards below. On completion,
 only that generation is acknowledged; subsequent edits remain dirty and intact.
 `retry` retries the unresolved frozen operation, not the latest input. A conflict
 requires explicit reconciliation and a fresh save against the chosen current revision;
 `reconcile(current, value)` explicitly accepts a freshly loaded/current conflict
 snapshot as the new base and the application-selected active value, marks it dirty,
 and clears the failed/pending operation. It is allowed only after a conflict or
-after an unknown operation has exhausted its safe replay window; the application
-must confirm this choice. A later save gets a fresh operationId and can still
+after an unknown or retryable operation has exhausted its safe replay window; the application
+must confirm this choice. For reconciliation the application loads a fresh snapshot
+through its remote adapter directly; this read does not change controller state.
+It returns `ok` with undefined on success and permanent
+`invalid_reconciliation_state` with no state change otherwise. A later save gets a fresh operationId and can still
 conflict if that base is stale. It does not itself persist or delete anything.
 There is no automatic merge or overwrite. While unknown, block new remote mutations.
+
+Mutation guards return permanent failures without dispatch, clearing errors, or
+changing pending operations. Apply guards in this order:
+
+| Condition | Methods | Code |
+| --- | --- | --- |
+| Disposed | All result-returning actions | `disposed` |
+| No remote adapter | save/retry/discardRemote/reloadRemote | `remote_unavailable` |
+| Unknown or retryable pending outcome | save/discardRemote | `operation_unresolved` |
+| Conflict awaits reconciliation | save/discardRemote | `reconciliation_required` |
+| Initial/reload discovery incomplete or failed | save/discardRemote/retry | `remote_not_ready` |
+| Another mutation is in flight | save/discardRemote/retry | `operation_in_progress` |
+| No retryable or unknown pending operation | retry | `no_pending_operation` |
+| Pending replay window exhausted | retry | `replay_window_expired` |
+
+A blocked call's permanent failure describes that attempted action, not the earlier
+uncertain mutation. `retry` is the only mutation allowed while unknown and uses the
+frozen request. A pending retryable failure also blocks new save/discard requests
+with `operation_unresolved` until retried or explicitly reconciled; it cannot silently be replaced.
+Dispatched saves set status `saving`; dispatched discards set `discarding`.
+Retries use the status for the original operation kind. Completion sets idle,
+conflict, unknown or error according to its result. Local errors remain observable
+in state.error even if a remote operation succeeds.
 Local edits remain possible. `error` carries retryable/permanent failures; conflict
 and unknown are represented by status and the operation result. Without a remote
 adapter, save/retry/discardRemote return permanent `remote_unavailable`; local
 persistence still follows updates. No pending retry returns `no_pending_operation`.
 
 `dispose` stops notifications and future scheduling. Calling actions after disposal
-is invalid (async actions return permanent `disposed`; sync actions throw). Late
+is invalid (result-returning actions return permanent `disposed`; update/restore/subscribe throw). Late
 completions must not update a new controller. Cancellation cannot undo a remote
 commit. Autosave debounce policy and React lifecycle integration belong to the engine
 and hooks issues, not this contract.
@@ -160,6 +201,13 @@ A backend implementation must additionally pass these behavioral scenarios:
 | Corrupt storage or unsupported schema | Visible failure; active input retained; no implicit removal |
 | Unauthorized replay or different account | Reauthorize; never expose another principal's result |
 
-Run `npx --yes --package typescript@5.9.3 tsc -p contracts/tsconfig.json` to verify
+Run `npm ci --prefix contracts --ignore-scripts` followed by
+`npm run --prefix contracts typecheck` to verify
 examples and negative type assertions. This checks contract shape only; runtime
 conformance tests will accompany the engine and concrete adapters.
+
+Both development and release workflows run this same locked, script-disabled
+compiler installation, typecheck, and `npm run --prefix contracts test`.
+The example tests check failure-envelope preservation and codec validation; they
+do not establish runtime engine conformance. The private contracts manifest is tooling
+only; it does not turn the repository into a published library package.
