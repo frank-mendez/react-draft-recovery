@@ -8,9 +8,26 @@ const tag = process.argv[2];
 assert.match(tag ?? '', /^v\d+\.\d+\.\d+(-beta\.\d+)?$/, 'Supply a release tag');
 const version = tag.slice(1);
 const name = 'react-draft-recovery';
-const run = (command, args, cwd) => execFileSync(command, args, {
-  cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'],
-});
+// Only fixed executables and the exact verification operations may run.
+const run = (command, args, cwd) => {
+  const allowed = (
+    command === 'npm' && args.length === 3 && args[0] === 'view' &&
+    /^react-draft-recovery@\d+\.\d+\.\d+(-beta\.\d+)?$/.test(args[1]) && args[2] === '--json'
+  ) || (
+    ['npm', 'pnpm'].includes(command) && args.length === 5 &&
+    args[0] === 'install' && args[1] === '--ignore-scripts' &&
+    /^react-draft-recovery@\d+\.\d+\.\d+(-beta\.\d+)?$/.test(args[2]) &&
+    args[3] === 'react@19.2.0' && args[4] === 'react-dom@19.2.0'
+  ) || (
+    command === 'node' && args.length === 1 && args[0] === 'smoke.mjs'
+  ) || (
+    command === 'npm' && args.length === 2 && args[0] === 'audit' && args[1] === 'signatures'
+  );
+  if (!allowed) throw new Error('Unsupported registry verification command');
+  return execFileSync(command, args, {
+    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: false,
+  });
+};
 const metadata = JSON.parse(run('npm', ['view', `${name}@${version}`, '--json']));
 assert.equal(metadata.version, version);
 const channel = version.includes('-beta.') ? 'beta' : 'latest';
