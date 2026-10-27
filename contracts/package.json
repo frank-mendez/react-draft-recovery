@@ -1,0 +1,12 @@
+{
+  "name": "react-draft-recovery-contract-checks",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test examples.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

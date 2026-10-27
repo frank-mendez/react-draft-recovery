@@ -19,6 +19,11 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/check-repository.mjs
+      - name: Check API contract types and examples
+        run: |
+          npm ci --prefix contracts --ignore-scripts
+          npm run --prefix contracts typecheck
+          npm run --prefix contracts test
       - name: Detect package
         id: package
         run: |
