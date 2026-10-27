@@ -26,7 +26,7 @@ jobs:
       - name: Validate tag format
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]] || exit 1
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -35,7 +35,7 @@ jobs:
           git rev-parse --verify "refs/tags/$RELEASE_TAG"
           git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" origin/main
           git checkout --detach "refs/tags/$RELEASE_TAG"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
@@ -45,7 +45,7 @@ jobs:
           npm ci --prefix contracts --ignore-scripts
           npm run --prefix contracts typecheck
           npm run --prefix contracts test
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - name: Build and verify release
         run: |
           pnpm install --frozen-lockfile
@@ -62,3 +62,5 @@ jobs:
           DIST_TAG=latest
           if [[ "$RELEASE_TAG" == *-beta.* ]]; then DIST_TAG=beta; fi
           npm publish "$RUNNER_TEMP/npm-release/$PACKAGE_FILE" --access public --provenance --tag "$DIST_TAG" --ignore-scripts
+      - name: Verify registry metadata and installed consumers
+        run: node scripts/verify-registry.mjs "$RELEASE_TAG" --require-provenance

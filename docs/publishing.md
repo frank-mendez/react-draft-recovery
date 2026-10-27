@@ -40,13 +40,13 @@ Node 24; the broader engine range applies to the next release.
 
 Use Conventional Commits for squash merge titles (`feat:`, `fix:`, `docs:`, `chore:`; `!` for breaking changes). Release Please opens a PR updating package.json, CHANGELOG.md and its manifest; merging that PR produces a GitHub tag/release. Review the version and notes before merging.
 
-The initial manifest seed is 0.1.0-beta.0, with beta prerelease versioning. It does not indicate a real release. Align it to the actual last version if a bootstrap release has already happened. Check the first generated version before merging. When graduating to stable, change the prerelease configuration and explicitly select the intended stable version in a reviewed release PR.
+The manifest records the published 0.1.0-beta.0, with beta prerelease versioning. Keep it aligned with the latest released version. Check the first generated version before merging. When graduating to stable, change the prerelease configuration and explicitly select the intended stable version in a reviewed release PR.
 
-Enable the repository variable `RELEASE_ENABLED=true` only once package.json and the implementation are ready. Permit Actions to create PRs in repository settings. Set `RELEASE_PLEASE_TOKEN` to a suitably scoped GitHub App/user token if automated PRs need to trigger CI. The fallback GITHUB_TOKEN cannot trigger new workflow runs for its own PR events; manually dispatch Development on the release PR branch if using that fallback. Required checks must still pass before merge.
+Enable the repository variable `RELEASE_ENABLED=true` only once package.json and the implementation are ready. Permit Actions to create PRs in repository settings. Set `RELEASE_PLEASE_TOKEN` to a suitably scoped GitHub App/user token if automated PRs need to trigger CI. The fallback GITHUB_TOKEN cannot trigger workflows through its own PR events. The changelog workflow explicitly dispatches Development on the generated PR branch using its actions:write permission; workflow_dispatch is supported with GITHUB_TOKEN. This also reruns validation when the release PR changes. If dispatch fails, manually run Development on that branch. Required checks must still pass before merge.
 
 ## npm preparation
 
-1. Resolve issues [1–6](https://github.com/frank-mendez/react-draft-recovery/issues). Confirm the package name is available and that the npm account owns it (or the intended scope). Name availability was not established by this audit.
+1. Review release readiness in [issue 6](https://github.com/frank-mendez/react-draft-recovery/issues/6). Registry ownership is confirmed as frankmendez8, matching the authenticated maintainer. Account 2FA is enabled for auth-and-writes and the email is verified (checked 2026-10-27).
 2. Review the confirmed MIT license and package metadata, supported runtimes, exports and optional React peer before release.
 3. Inspect the actual packed tarball and run both consumer installations. Ensure the README's examples work, and exclude credentials, fixtures and unnecessary source/build files. A metadata check alone cannot establish a working release.
 4. Set up the npm maintainer account and its required authentication. If the new package cannot yet have a trusted publisher configured, publish the first tested real beta from an authenticated maintainer session (`npm publish <verified-tarball> --access public --tag beta`). Do not publish a placeholder merely to enable automation. Record the corresponding source tag/version and align the release manifest.
@@ -57,7 +57,7 @@ Enable the repository variable `RELEASE_ENABLED=true` only once package.json and
 
 Run **Publish npm release** manually from **main**, supplying the reviewed tag (for example `v0.1.0-beta.1`). The workflow requires that the tag is on main, checks out its exact source, verifies version/metadata, runs all package checks, packs, then publishes the tarball. Beta versions use the `beta` dist-tag; stable versions use `latest`. npm provenance is requested. Changelog generation and publication are separate deliberately: tags created with GITHUB_TOKEN do not start another workflow automatically.
 
-After publication, check the registry version, dist-tag and provenance, then install the version in clean npm and pnpm applications. If publishing fails, inspect npm first: a network error may occur after a successful upload. If that exact version is absent, fix the external configuration and dispatch the same tag again. Published versions cannot be overwritten; source changes require a new version/tag and release PR. A GitHub release can exist while npm publication is still pending.
+After publication, the workflow runs scripts/verify-registry.mjs with --require-provenance. It checks the version, beta/latest dist-tag, owner and attestation metadata, installs the published version using npm and pnpm, exercises core recovery and React SSR, and verifies registry signatures/attestations with npm audit signatures. If publishing fails, inspect npm first: a network error may occur after a successful upload. If that exact version is absent, fix the external configuration and dispatch the same tag again. Published versions cannot be overwritten; source changes require a new version/tag and release PR. A GitHub release can exist while npm publication is still pending.
 
 There is one publication destination: the npm registry. pnpm is a package manager that consumes it. Users can run `npm install react-draft-recovery@beta` or `pnpm add react-draft-recovery@beta`. The initial published version is `0.1.0-beta.0`.
 
@@ -66,3 +66,35 @@ There is one publication destination: the npm registry. pnpm is a package manage
 - [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/)
 - [Release Please Action and token behavior](https://github.com/googleapis/release-please-action)
 - [pnpm action setup](https://github.com/pnpm/action-setup)
+
+## Readiness record (2026-10-27)
+
+- Published beta.0 and owner `frankmendez8` confirmed against npm; the authenticated maintainer has verified email and 2FA for sign-in and writes.
+- The bootstrap release currently has both `beta` and `latest` dist-tags. Subsequent beta publishes explicitly target `beta` and do not move `latest`. Install `@beta` during prerelease development.
+- beta.0 has no provenance attestation. This cannot be added retroactively by editing the changelog; the next version must be published through OIDC.
+- GitHub Actions may create release PRs. Default token permissions remain read-only; workflow jobs request only their required permissions.
+- GitHub environment `npm` exists and accepts deployments only from the `main` branch.
+- The maintainer configured the npm trusted publisher for frank-mendez/react-draft-recovery, release.yml, environment npm, with publish permission. npm shows Pending validation: a successful workflow publication is required before October 29, 2026 at 15:47 UTC. Release variables remain unset until the workflow merge and readiness review are complete. No release PR token is stored: the explicit validation dispatch supports the built-in token.
+
+Configure the npm trusted publisher on the package settings page, or with npm >=11.15:
+
+```sh
+npm trust github react-draft-recovery --repo frank-mendez/react-draft-recovery --file release.yml --env npm --allow-publish
+npm trust list react-draft-recovery
+```
+
+Complete npm's browser/2FA prompt yourself. Confirm the exact repository, workflow, environment and publish permission. After merging and reviewing readiness, set `RELEASE_ENABLED=true` and `NPM_PUBLISH_ENABLED=true` in repository Actions variables. Run **Changelog and release PR**, review its generated beta version/changelog and passing Development checks, then merge the release PR. Release Please creates the version tag and GitHub release with changelog notes; run **Publish npm release** on main for that tag.
+
+To verify an already published version without attempting another upload:
+
+```sh
+node scripts/verify-registry.mjs v0.1.0-beta.0
+# Future OIDC releases must also pass provenance verification:
+node scripts/verify-registry.mjs v0.1.0-beta.1 --require-provenance
+```
+
+If the post-publish check fails, inspect the registry before retrying. If the version exists, rerun only verification; do not republish. Allow registry propagation time before repeating checks. Missing provenance on a new release requires investigating the OIDC publishing path and a new version; never overwrite tags or published versions.
+
+## Stable promotion
+
+In a reviewed change to release-please-config.json, remove `prerelease-type`, set `prerelease` to false and `versioning` to `default`, and temporarily set `release-as` to the intended stable version (for example `0.1.0`). Review the generated release PR, package version and changelog; merge only after validation passes. Remove the one-time `release-as` override afterward. Publish its stable tag through release.yml; the workflow selects `latest`. Verify the stable version with `--require-provenance`. Retain the beta channel for prerelease consumers; do not move it to stable implicitly.

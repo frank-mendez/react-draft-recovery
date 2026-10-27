@@ -17,12 +17,24 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Require package before release automation
         run: test -f package.json && test -f pnpm-lock.yaml
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Validate generated release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          PR_NUMBER=$(node -e 'console.log(JSON.parse(process.env.RELEASE_PR).number)')
+          BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName)
+          gh workflow run development.yml --ref "$BRANCH"
