@@ -1,0 +1,71 @@
+{
+  "name": "react-draft-recovery",
+  "version": "0.1.0-beta.0",
+  "description": "Typed draft recovery and autosave coordination for React and framework-independent applications",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frank-mendez/react-draft-recovery.git"
+  },
+  "homepage": "https://github.com/frank-mendez/react-draft-recovery#readme",
+  "bugs": {
+    "url": "https://github.com/frank-mendez/react-draft-recovery/issues"
+  },
+  "types": "./dist/react/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./core": {
+      "types": "./dist/src/core.d.ts",
+      "import": "./dist/src/core.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "lint": "eslint . && node scripts/check-repository.mjs",
+    "typecheck": "tsc --noEmit && tsc -p contracts/tsconfig.json && tsc -p react/tsconfig.json",
+    "test": "node --test contracts/*.test.mjs tests/*.test.mjs react/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "test:package": "node scripts/test-package.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "eslint": "9.39.1",
+    "typescript-eslint": "8.48.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "jsdom": "27.0.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "typescript": "5.9.3"
+  }
+}

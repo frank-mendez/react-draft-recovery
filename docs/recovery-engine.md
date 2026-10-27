@@ -145,3 +145,17 @@ promises and an injected monotonic clock, with no real timers or external servic
 An atomic in-memory revision/idempotency adapter tests response loss, competing
 controllers, reversed completion order and delete tombstones. These tests establish
 engine behavior, not production backend transaction correctness or browser support.
+
+## Save acknowledgements and initial discovery
+
+After a successful remote save, the engine persists the active draft with the
+acknowledged revision. This write is serialized behind pending local writes and
+preserves newer edits. A candidate explicitly restored during the save retains
+its own ancestry. The local recovery copy remains available after reopening, but
+restoring it no longer conflicts against that same acknowledged save. Local write
+failures remain visible and can be retried with `persistLocal()`.
+
+Edits made before initial remote discovery succeeds have unknown ancestry, just
+like their persisted recovery record. Loading a remote snapshot does not silently
+rebase those edits: call `reconcile(snapshot, chosenValue)` before saving. This
+also applies to edits made while the initial remote load has failed.

@@ -2,7 +2,7 @@
 
 Flexible autosave and draft recovery for React forms and editors, with configurable storage, backend adapters, and explicit conflict handling.
 
-> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). A typed [React hook and runnable example](docs/react.md) are available in source; an installable package is not available yet. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
+> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). A typed [React hook and runnable example](docs/react.md) are available in source; the initial ESM beta is available on npm. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
 
 ## Why this library?
 
@@ -50,9 +50,44 @@ The library is intended to coordinate recovery; the application and backend rema
 
 ## Installation
 
-The package has not been published. Installation instructions will be added after the first release and package name are confirmed.
+The package name is `react-draft-recovery`, licensed under MIT. Install the initial beta with either package manager:
 
-The plan is to publish one package to the npm registry, installable with either npm or pnpm.
+```sh
+npm install react-draft-recovery@beta
+# or
+pnpm add react-draft-recovery@beta
+```
+
+React applications must also install React 18.3.1+ or 19. To build and verify a local tarball:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+pnpm test:package
+npm pack
+```
+
+Install the generated `react-draft-recovery-0.1.0-beta.0.tgz` in another project
+with `npm install /path/to/package.tgz` or `pnpm add /path/to/package.tgz`.
+React applications must also install React separately.
+
+```ts
+import { useDraftRecovery } from 'react-draft-recovery';
+// Equivalent hook entry: 'react-draft-recovery/react'
+import { createRecovery, createLocalStorageAdapter } from 'react-draft-recovery/core';
+import type { Codec, RecoveryEngineOptions } from 'react-draft-recovery/core';
+```
+
+The core entry does not import React or access browser globals during import.
+React is an optional peer so core-only applications do not install it; it is
+required when using the hook. The React entry preserves its `"use client"` directive.
+
+Supported package format is ESM (no CommonJS export), targeting ES2022. Node.js
+22.14+ is supported for consumers in the next release; published beta.0 requires
+Node 24. Development and source tests use Node 24+. React 18.3.1+ and 19 are supported;
+the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNext
+and Bundler resolution. Browser applications need a modern ES2022-capable runtime
+and bundler; browser storage remains optional through the storage adapter.
 
 ## Roadmap
 
@@ -61,8 +96,9 @@ The plan is to publish one package to the npm registry, installable with either 
 - [x] Implement and test the recovery engine, including overlapping saves and retries.
 - [x] Add React hooks and a minimal example application.
 - [ ] Verify account isolation, competing tabs, storage failures, and server rendering.
-- [ ] Validate the packed package in independent consumer applications.
-- [ ] Publish a beta with documentation and a repeatable release workflow.
+- [x] Validate the packed package in independent npm and pnpm consumer applications.
+- [x] Publish the initial beta with documentation.
+- [ ] Configure and verify trusted publishing for repeatable automated releases.
 - [ ] Stabilize the API based on real usage and feedback.
 
 ## Contributing
@@ -73,4 +109,4 @@ Development setup, contribution guidelines, and compatibility details will be ad
 
 ## Repository verification and release process
 
-See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows are infrastructure for the planned package; they do not indicate that the library is ready to install.
+See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the package; publication remains a separate release step.

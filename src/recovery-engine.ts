@@ -202,12 +202,17 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       }
     } catch { result = uncertain(); }
     if (disposed) return fail('disposed');
-    inFlight = false;
     switch (result.kind) {
       case 'ok':
         remoteState = Object.freeze({ kind: 'ready', snapshot: result.value });
         if (op.kind === 'save') acknowledged = op.generation;
-        if (op.baseEpoch === baseEpoch) activeBase = result.value.revision;
+        if (op.baseEpoch === baseEpoch) {
+          activeBase = result.value.revision;
+          // Serialize behind pending local writes and preserve any newer edits.
+          // A restored candidate has its own ancestry and must not be rebased.
+          if (op.kind === 'save') await persistLocal();
+          if (disposed) return fail('disposed');
+        }
         operation = null; status = 'idle'; break;
       case 'conflict':
         op.outcome = 'conflict'; status = 'conflict';
@@ -222,7 +227,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       }
       case 'permanent': operation = null; status = 'error'; remoteError = result; break;
     }
-    publish(); return result;
+    inFlight = false; publish(); return result;
   };
   const mutate = (kind: 'save' | 'discard'): Promise<MutationResult<T>> => {
     const blocked = guard(kind); if (blocked) return Promise.resolve(blocked);
@@ -255,6 +260,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     update(value) {
       if (disposed) throw new Error('Recovery controller is disposed');
       const captured = capture(value);
+      if (remote && activeBase === undefined) activeBase = null;
       generation++; changingLocal = true;
       try { local.update(captured); } finally { changingLocal = false; }
       publish(); void persistLocal();
