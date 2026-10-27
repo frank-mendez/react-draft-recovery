@@ -19,6 +19,8 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/check-repository.mjs
+      - name: Check API contract types and examples
+        run: npx --yes --package typescript@5.9.3 tsc -p contracts/tsconfig.json
       - name: Detect package
         id: package
         run: |

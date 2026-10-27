@@ -13,6 +13,10 @@ No implementation, dependency manifest, build, tests, license or workflows exist
 | Installable independent package | Missing manifest/license/build; verify actual packed exports and clean npm/pnpm consumers | [#5](https://github.com/frank-mendez/react-draft-recovery/issues/5) |
 | Repeatable beta releases | Missing registry setup; establish ownership, trusted publisher and release checks | [#6](https://github.com/frank-mendez/react-draft-recovery/issues/6) |
 
+Follow-up: issue #1 now has a [typed API and adapter contract](api-contract.md),
+with compiler-checked examples. The table above records the original baseline;
+runtime conformance remains work for the engine and concrete adapters.
+
 Recommended order: settle the contracts and package foundation; implement storage and engine with adversarial tests; add React integration and examples; validate consumers; configure and publish beta. Stabilization requires real usage feedback after beta.
 
 This change adds development checks, changelog/release PR automation, a gated manual npm publish workflow and a publishing runbook. It deliberately does not implement the library or mark README roadmap items complete. Release configuration is inert until repository variables are enabled. Workflow execution in GitHub and real publishing still require a pushed change and account setup.
