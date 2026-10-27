@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-beta.2](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.1...v0.1.0-beta.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* tolerate npm registry propagation after publication ([#17](https://github.com/frank-mendez/react-draft-recovery/issues/17)) ([65e8c3c](https://github.com/frank-mendez/react-draft-recovery/commit/65e8c3cdd74a65a77cfb175ab4b874672ae87ba4))
+
 ## [0.1.0-beta.1](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.0...v0.1.0-beta.1) (2026-10-27)
 
 
