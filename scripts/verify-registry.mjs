@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readRegistryMetadata } from './registry-retry.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,7 +29,7 @@ const run = (command, args, cwd) => {
     cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: false,
   });
 };
-const metadata = JSON.parse(run('npm', ['view', `${name}@${version}`, '--json']));
+const metadata = await readRegistryMetadata(() => JSON.parse(run('npm', ['view', `${name}@${version}`, '--json'])));
 assert.equal(metadata.version, version);
 const channel = version.includes('-beta.') ? 'beta' : 'latest';
 assert.equal(metadata['dist-tags'][channel], version, `Unexpected ${channel} dist-tag`);
