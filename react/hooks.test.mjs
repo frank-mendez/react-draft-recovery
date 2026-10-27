@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as React from 'react';
 import { createElement as h, StrictMode, act } from 'react';
 import { renderToString } from 'react-dom/server';
 import { createRoot, hydrateRoot } from 'react-dom/client';
@@ -119,13 +120,132 @@ test('typed actions expose retry and conflict reconciliation without replacing e
   } finally { await act(async () => root.unmount()); d.close(); }
 });
 
-test('invalid initialization exposes an error and replacing the adapter starts a new session', async () => {
+test('invalid initialization exposes an error and a keyed remount retries configuration', async () => {
   const f = fixture(); const d = dom(); const root = createRoot(d.container);
   try {
     await act(async () => root.render(h(Editor, { options: { ...f.options, storage: {} } })));
     assert.equal(latest.ready, false); assert.equal(latest.state.status, 'error');
     assert.equal(latest.state.error.code, 'invalid_options');
-    await act(async () => root.render(h(Editor, { options: f.options })));
+    await act(async () => root.render(h(Editor, { key: 'fixed', options: f.options })));
     assert.equal(latest.ready, true); assert.equal(latest.state.error, null);
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+
+test('Activity hide/reveal preserves edits and pending writes without creating a recovery candidate', { skip: !React.Activity }, async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container);
+  const write = f.options.storage.write; let release;
+  f.options.storage.write = async (...args) => { await new Promise(resolve => { release = resolve; }); return write(...args); };
+  const show = mode => h(React.Activity, { mode }, h(Editor, { options: f.options }));
+  try {
+    await act(async () => root.render(show('visible')));
+    await act(async () => latest.actions.update('typed'));
+    await act(async () => root.render(show('hidden')));
+    assert.equal(f.subscriptions.size, 0);
+    await act(async () => release());
+    await act(async () => root.render(show('visible')));
+    assert.equal(latest.state.value, 'typed');
+    assert.equal(latest.state.candidate.kind, 'none');
+    assert.equal(f.subscriptions.size, 1);
+    f.options.storage.write = write;
+    await act(async () => { latest.actions.update('continued'); await latest.actions.persistLocal(); });
+    assert.equal(f.records.get('a').payload, '"continued"');
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+test('inline configuration does not restart discovery or erase edits and warns once', async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container);
+  const warnings = []; const warn = console.warn; console.warn = message => warnings.push(message);
+  let renders = 0;
+  function InlineEditor() {
+    // Bound the old restart loop so this regression fails rather than hanging.
+    if (++renders > 12) throw new Error('Configuration restart loop');
+    return Editor({ options: { ...f.options, storage: { ...f.options.storage }, codec: { ...f.options.codec }, now: () => 0, createOperationId: () => 'id' } });
+  }
+  try {
+    await act(async () => root.render(h(InlineEditor)));
+    await act(async () => latest.actions.update('typed inline'));
+    await act(async () => root.render(h(InlineEditor)));
+    assert.equal(latest.state.value, 'typed inline'); assert.equal(f.reads(), 1);
+    assert.equal(warnings.length, 1); assert.match(warnings[0], /configuration.*remount/i);
+  } finally { console.warn = warn; await act(async () => root.unmount()); d.close(); }
+});
+
+test('Activity retains unresolved remote mutations and retries the original request', { skip: !React.Activity }, async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container);
+  let clock = 0; let id = 0; const requests = [];
+  f.options.now = () => clock; f.options.createOperationId = () => String(++id);
+  f.options.remote = {
+    replayWindowMs: 10000,
+    async load() { return ok({ kind: 'absent', revision: '0' }); },
+    async save(request) {
+      requests.push(request);
+      return requests.length === 1 ? { kind: 'unknown', message: 'Lost response' } : ok({ kind: 'present', revision: '1', value: request.value });
+    },
+    async discard() { return ok({ kind: 'absent', revision: '2' }); },
+  };
+  const show = mode => h(React.Activity, { mode }, h(Editor, { options: f.options }));
+  try {
+    await act(async () => root.render(show('visible')));
+    await act(async () => { latest.actions.update('submitted'); await latest.actions.save(); latest.actions.update('newer'); });
+    const oldActions = latest.actions;
+    await act(async () => root.render(show('hidden')));
+    assert.equal((await oldActions.save()).code, 'inactive_session');
+    await act(async () => root.render(show('visible')));
+    assert.equal(latest.state.status, 'unknown'); assert.equal(latest.state.value, 'newer');
+    clock = 250;
+    await act(async () => { await latest.actions.retry(); });
+    assert.deepEqual(requests[1], requests[0]); assert.equal(latest.state.value, 'newer'); assert.equal(latest.state.dirty, true);
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+test('Activity rechecks missed competing storage changes before allowing persistence', { skip: !React.Activity }, async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container);
+  const show = mode => h(React.Activity, { mode }, h(Editor, { options: f.options }));
+  try {
+    await act(async () => root.render(show('visible')));
+    await act(async () => latest.actions.update('mine'));
+    await act(async () => root.render(show('hidden')));
+    f.records.set('a', { ...f.records.get('a'), payload: '"theirs"' });
+    await act(async () => root.render(show('visible')));
+    assert.equal(latest.state.value, 'mine'); assert.equal(latest.state.candidate.value, 'theirs');
+    await act(async () => { assert.equal((await latest.actions.persistLocal()).code, 'recovery_pending'); });
+    assert.equal(f.records.get('a').payload, '"theirs"');
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+test('Activity retains input when its local write fails while hidden', { skip: !React.Activity }, async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container); let release;
+  f.options.storage.write = () => new Promise(resolve => { release = resolve; });
+  const show = mode => h(React.Activity, { mode }, h(Editor, { options: f.options }));
+  try {
+    await act(async () => root.render(show('visible')));
+    await act(async () => latest.actions.update('only in memory'));
+    await act(async () => root.render(show('hidden')));
+    await act(async () => release({ kind: 'retryable', code: 'storage_quota', message: 'Full' }));
+    await act(async () => root.render(show('visible')));
+    assert.equal(latest.state.value, 'only in memory'); assert.equal(latest.state.error.code, 'storage_quota');
+    assert.equal(latest.state.candidate.kind, 'none');
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+test('reveal does not drain a queued edit over an unseen competing record', { skip: !React.Activity }, async () => {
+  const f = fixture(); const d = dom(); const root = createRoot(d.container);
+  const write = f.options.storage.write; let acknowledge;
+  f.options.storage.write = async (...args) => { await write(...args); await new Promise(resolve => { acknowledge = resolve; }); return ok(); };
+  const show = mode => h(React.Activity, { mode }, h(Editor, { options: f.options }));
+  try {
+    await act(async () => root.render(show('visible')));
+    await act(async () => latest.actions.update('first'));
+    await act(async () => latest.actions.update('queued'));
+    await act(async () => root.render(show('hidden')));
+    f.records.set('a', { ...f.records.get('a'), payload: '"competing"' });
+    await act(async () => root.render(show('visible')));
+    assert.equal(latest.actions, null);
+    await act(async () => acknowledge());
+    assert.equal(latest.state.value, 'queued');
+    assert.equal(f.records.get('a').payload, '"competing"');
+    assert.equal(latest.state.candidate.value, 'competing');
+    await act(async () => { assert.equal((await latest.actions.persistLocal()).code, 'recovery_pending'); });
   } finally { await act(async () => root.unmount()); d.close(); }
 });

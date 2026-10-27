@@ -12,12 +12,12 @@ range: **React 18.3.1 or later in React 18, and React 19**. CI exercises React
 `T` from the initial value and codec. It returns `{ ready, state, actions }`.
 `state` uses the core's `RecoveryState<T>`; `actions` exposes all core editing,
 restore, persistence, retry, reload, and reconciliation actions. Subscription
-and disposal are owned by React and are not exposed as actions.
+and connection management are owned by React and are not exposed as actions.
 
 Before discovery finishes, `ready` is false, `actions` is null, and `state` has
 the supplied initial value, no candidate, and status `loading`. Disable editing
 until ready. Initialization failures return status `error` and `state.error`;
-remount or replace the invalid configuration to retry initialization. Storage
+remount with a new React key and valid configuration to retry initialization. Storage
 read failures handled by the core may still yield a ready session with an error.
 
 ```tsx
@@ -27,12 +27,18 @@ return <textarea value={recovery.state.value.title}
   onChange={event => recovery.actions.update({ title: event.target.value })} />;
 ```
 
-Keep adapter, codec, clock, and operation-ID function references stable (module
-constants or `useMemo`). Changing any of those identities starts a new session.
-Scope is compared by its user, document, and editor strings, so inline scope
-objects are safe. `initialValue` is a seed for each session; changing it alone
-does not reset edits. To deliberately reset the same scope, remount with a React
-key. Do not mutate the seed object. Each mounted hook owns a separate controller.
+Configuration (storage, codec, remote adapter, clock, and operation-ID function)
+is captured once per scope. Inline objects do not restart the session. If their
+identities change within a scope, the hook emits one runtime warning and continues
+using the captured configuration. Use stable references to avoid that warning;
+use a new React `key` to intentionally apply different configuration. This also
+means callbacks must not depend on stale captured props: use an adapter that reads
+current credentials, or remount when its configuration changes.
+
+Scope is compared by its user, document, and editor strings. Changing any of those
+starts a fresh session. `initialValue` is a seed; changing it alone never resets
+edits. Do not mutate the seed or captured configuration objects. Each mounted hook
+owns a separate controller.
 
 The hook does not introduce remote autosave: updates persist locally, and the
 application explicitly invokes `save()`. Restore never occurs automatically.
@@ -48,15 +54,30 @@ server snapshot for SSR and hydration. Supply the same scope and initial value
 on the server and client. Recovery discovery happens after hydration and never
 replaces the rendered input without an explicit restore action.
 
-Cleanup unsubscribes and disposes each controller. Effect replay creates a fresh
-session; a controller whose asynchronous initialization finishes after cleanup
-is immediately disposed. Late completions cannot update the current hook state.
-A scope change renders the new seed immediately and disposes the old session on
-commit. Already-issued adapter I/O cannot be cancelled by this API and may finish
-against its original scope; adapters must retain the supplied scope. Pending local
-reads can temporarily retain resources until they resolve. Cleanup does not flush
-or save remotely; call and await persistence before intentional navigation when
-that is required. Retained actions from a disposed session must not be reused.
+Cleanup disconnects external storage notifications and React observers, and
+blocks actions retained by callers. It does not destroy in-memory controller
+state: React uses the same cleanup for unmount and temporary hiding/replay, so
+Activity hide/show and Fast Refresh must be able to reconnect the existing
+session, including its active text, dirty state, and remote retry identity.
+Once React releases the session, it can be garbage-collected; pending adapter
+promises can retain it until they settle.
+
+On reconnect, actions are temporarily null (`ready: false`) while local storage
+is revalidated after outstanding local operations settle. The current text stays
+visible. A record this session wrote is not presented as a new recovery candidate;
+a competing record or removal blocks persistence until explicitly resolved. Read
+failures remain visible and do not replace active input. Storage notification
+reconnection failures return `ready: false` with an error; remount to retry.
+
+A scope change renders a fresh seed and disconnects the old session on commit.
+Already-issued adapter I/O cannot be cancelled and may finish against its original
+scope. Local writes not yet dispatched are refused while disconnected, retain the
+input in memory, and expose a retryable error; retry local persistence after
+reconnecting. Cleanup does not flush or save remotely. Call and await persistence
+before intentional navigation when that is required. Retained actions must not
+be used while disconnected: async actions return `inactive_session`, synchronous
+update/restore do nothing. Such actions become usable again only when their same
+session has reconnected and completed revalidation.
 
 These lifecycle choices follow React's [external-store SSR contract](https://react.dev/reference/react/useSyncExternalStore)
 and [Strict Mode effect replay](https://react.dev/reference/react/StrictMode).
@@ -92,6 +113,8 @@ npm run --prefix react build
 
 Tests cover SSR without browser globals, hydration, explicit restore/discard,
 Strict Mode replay, subscription cleanup, scope changes during discovery,
-unmount during discovery, adapter replacement, initialization failures, retries,
-and conflict reconciliation. Compile-only consumers check generic action types.
+unmount during discovery, keyed configuration replacement, initialization failures,
+inline configuration, retries, and conflict reconciliation. On React 19.2 the suite
+also checks Activity hide/show with pending/failed writes, unresolved remote
+mutations, and missed competing storage changes. Compile-only consumers check generic action types.
 The existing independent core tests continue to run from `contracts`.

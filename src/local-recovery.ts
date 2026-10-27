@@ -154,7 +154,8 @@ export interface LocalRecovery<T> {
   update(value: T): void;
   restore(): Result<void>;
   persist(baseRevision?: string | null): Promise<Result<void>>;
-  refresh(): Promise<Result<void>>;
+  /** Revalidate after disconnection without offering this session's own saved draft. */
+  refresh(preserveActive?: boolean): Promise<Result<void>>;
   discard(): Promise<Result<void>>;
   /** Dispose, drain the in-flight operation, then clear this account's drafts. Retryable after disposal. */
   logout(): Promise<Result<void>>;
@@ -193,6 +194,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   let baseRevision = options.baseRevision ?? null;
   let candidateRevision: string | null = null;
   let unsubscribe = () => {};
+  let ownRecord: LocalRecord | null = null;
   let notificationError: Failure | null = null;
   let mutationError: Failure | null = null;
   const listeners = new Set<() => void>();
@@ -204,7 +206,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   const attempt = async <R>(operation: () => Promise<Result<R>>): Promise<Result<R>> => {
     try { return await operation(); } catch (error) { return storageFailure(error); }
   };
-  const discover = async (): Promise<Result<void>> => {
+  const discover = async (preserveActive: boolean): Promise<Result<void>> => {
     if (disposed || loggedOut) return inactiveError();
     const ticket = ++discovery;
     discovering = true;
@@ -213,6 +215,18 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
     if (disposed || loggedOut) return inactiveError();
     if (ticket !== discovery) return ok(undefined);
     discovering = false;
+    if (preserveActive && ownRecord && result.kind === 'ok' && !state.externalChange) {
+      const checked = validateRecord(result.value, scope);
+      if (checked.kind === 'ok' && checked.value.payload === ownRecord.payload &&
+          checked.value.dataVersion === ownRecord.dataVersion && checked.value.savedAt === ownRecord.savedAt &&
+          checked.value.baseRevision === ownRecord.baseRevision) {
+        blocked = false; discoveryError = null;
+        publish({ candidate: Object.freeze({ kind: 'none' }), error: null });
+        return ok(undefined);
+      }
+      // A different record (including removal) may have arrived while disconnected.
+      publish({ externalChange: true });
+    }
     let error: Failure | null = result.kind === 'ok' ? null : result;
     let candidate: LocalRecoveryState<T>['candidate'] = { kind: 'none' };
     blocked = result.kind !== 'ok' || result.value !== null || state.externalChange;
@@ -238,10 +252,10 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
     publish({ candidate: Object.freeze(candidate), error });
     return error ?? ok(undefined);
   };
-  const refresh = (): Promise<Result<void>> => {
+  const refresh = (preserveActive = false): Promise<Result<void>> => {
     signalRefresh();
     refreshChanged = new Promise<void>(resolve => { signalRefresh = resolve; });
-    const task = discover();
+    const task = discover(preserveActive);
     refreshing = task;
     const settled = () => { if (refreshing === task) refreshing = null; };
     void task.then(settled, settled);
@@ -308,7 +322,9 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       if (waited && discoveryError) return discoveryError;
       if (blocked) return recoveryPending();
       const ticket = discovery;
+      const savedRecord = { ...record };
       const result = await attempt(() => storage.write(scope, record, origin));
+      if (result.kind === 'ok') ownRecord = savedRecord;
       if (disposed || loggedOut) return inactiveError();
       mutationError = result.kind === 'ok' ? null : result;
       if (result.kind !== 'ok') publish({ error: result });
@@ -322,6 +338,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       const result = await attempt(() => storage.remove(scope, origin));
       if (disposed || loggedOut) return inactiveError();
       if (result.kind === 'ok') {
+        ownRecord = null;
         const superseded = ticket !== discovery;
         discovery++; discovering = false; blocked = false; mutationError = null;
         refreshing = null; discoveryError = null; signalRefresh();

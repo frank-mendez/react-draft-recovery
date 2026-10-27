@@ -71,6 +71,8 @@ export interface RecoveryController<T> {
   retry(): Promise<MutationResult<T>>;
   /** Persist/retry local recovery without acknowledging a remote save. */
   persistLocal(): Promise<Result<void>>;
+  /** Revalidate local storage after a subscription gap, preserving active input. */
+  refreshLocal(): Promise<Result<void>>;
   discardLocal(): Promise<Result<void>>;
   discardRemote(): Promise<MutationResult<T>>;
   dispose(): void;

@@ -275,6 +275,12 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     discardRemote: () => mutate('discard'),
     retry() { const blocked = guard('retry'); return blocked ? Promise.resolve(blocked) : dispatch(operation!); },
     persistLocal,
+    async refreshLocal() {
+      // Finish this session's queued writes/removal before comparing stored data.
+      while (localTask || localRemoval) await (localTask ?? localRemoval);
+      if (disposed) return fail('disposed');
+      return local.refresh(true);
+    },
     discardLocal() {
       if (disposed) return Promise.resolve(fail('disposed'));
       if (localTask || localRemoval) return Promise.resolve(fail('operation_in_progress'));

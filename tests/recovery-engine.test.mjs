@@ -436,3 +436,39 @@ test('unknown-base restoration cannot enable remote reconciliation without an ad
   assert.equal(c.reconcile(absent('r0'), { title: 'Chosen' }).code, 'invalid_reconciliation_state');
   assert.equal(c.getSnapshot().remote.kind, 'disabled');
 });
+
+test('local revalidation recognizes own persisted text but protects changes and removals', async () => {
+  const f = fixture({ remote: undefined }); const c = await f.open();
+  c.update({ title: 'mine' }); await c.persistLocal();
+  await c.refreshLocal();
+  assert.equal(c.getSnapshot().candidate.kind, 'none');
+  assert.equal((await c.persistLocal()).kind, 'ok');
+  await f.storage.write(f.options.scope, { ...f.record(), payload: '{"title":"theirs"}' });
+  await c.refreshLocal();
+  assert.equal(c.getSnapshot().value.title, 'mine');
+  assert.equal(c.getSnapshot().candidate.value.title, 'theirs');
+  assert.equal((await c.persistLocal()).code, 'recovery_pending');
+  await c.discardLocal();
+  c.update({ title: 'new mine' }); await c.persistLocal();
+  await f.storage.remove(f.options.scope);
+  await c.refreshLocal();
+  assert.equal(c.getSnapshot().candidate.kind, 'none');
+  assert.equal((await c.persistLocal()).code, 'recovery_pending');
+  c.dispose();
+});
+
+test('local revalidation drains in-flight writes and retains storage read failures', async () => {
+  const f = fixture({ remote: undefined }); const c = await f.open();
+  const gate = deferred(); const write = f.storage.write;
+  f.storage.write = async (...args) => { await gate.promise; return write(...args); };
+  c.update({ title: 'pending' });
+  const refreshing = c.refreshLocal(); gate.resolve();
+  assert.equal((await refreshing).kind, 'ok');
+  assert.equal(c.getSnapshot().value.title, 'pending');
+  assert.equal(c.getSnapshot().candidate.kind, 'none');
+  f.storage.read = async () => ({ kind: 'retryable', code: 'offline', message: 'Unavailable' });
+  assert.equal((await c.refreshLocal()).code, 'offline');
+  assert.equal(c.getSnapshot().error.code, 'offline');
+  assert.equal(c.getSnapshot().value.title, 'pending');
+  c.dispose(); assert.equal((await c.refreshLocal()).code, 'disposed');
+});
