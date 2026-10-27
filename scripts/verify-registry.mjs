@@ -46,7 +46,6 @@ try {
     run(manager, ['install', '--ignore-scripts', `${name}@${version}`, 'react@19.2.0', 'react-dom@19.2.0'], dir);
     writeFileSync(join(dir, 'smoke.mjs'), `
 import assert from 'node:assert/strict';
-import { readRegistryMetadata } from './registry-retry.mjs';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { createRecovery } from 'react-draft-recovery/core';
