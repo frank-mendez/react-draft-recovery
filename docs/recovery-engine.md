@@ -3,7 +3,7 @@
 `src/recovery-engine.ts` implements issue #3 and the controller in
 [the API contract](api-contract.md). It composes local recovery with remote
 revision/idempotency coordination without React, browser or backend dependencies.
-This is source-level code; package exports and React integration remain pending.
+This is source-level code; package exports remain pending. See the [React binding](react.md) for hook integration.
 
 ## Usage
 
@@ -67,6 +67,12 @@ Updates/restoration start local persistence immediately. While one write is pend
 subsequent edits coalesce into a write of the newest value. `persistLocal()` retries
 local storage and resolves after that queue drains. It neither saves remotely nor
 clears remote dirty state. Local errors remain in `state.error` until corrected.
+`refreshLocal()` drains pending local writes/removal, then revalidates stored data
+without replacing active input. A record last written by this controller is not
+offered as a recovery candidate; competing records or removal still block writes.
+This supports reconnecting notifications after a lifecycle gap. Applications must
+await revalidation before issuing new local actions.
+
 Local records retain the active draft's base revision, captured with its payload.
 A remote conflict or reload cannot re-stamp an older draft with a newer revision.
 An older in-flight success cannot advance the base of a newly restored draft.
