@@ -2,7 +2,7 @@
 
 Flexible autosave and draft recovery for React forms and editors, with configurable storage, backend adapters, and explicit conflict handling.
 
-> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). A typed [React hook and runnable example](docs/react.md) are available in source; an ESM package can now be built and tested locally, but has not been published. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
+> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). A typed [React hook and runnable example](docs/react.md) are available in source; the initial ESM beta is available on npm. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
 
 ## Why this library?
 
@@ -50,8 +50,15 @@ The library is intended to coordinate recovery; the application and backend rema
 
 ## Installation
 
-The package name is `react-draft-recovery`, licensed under MIT. It has not been
-published. To build and verify a local tarball:
+The package name is `react-draft-recovery`, licensed under MIT. Install the initial beta with either package manager:
+
+```sh
+npm install react-draft-recovery@beta
+# or
+pnpm add react-draft-recovery@beta
+```
+
+React applications must also install React 18.3.1+ or 19. To build and verify a local tarball:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -100,4 +107,4 @@ Development setup, contribution guidelines, and compatibility details will be ad
 
 ## Repository verification and release process
 
-See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the local package; publication remains a separate release step.
+See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the package; publication remains a separate release step.

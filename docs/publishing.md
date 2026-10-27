@@ -1,8 +1,8 @@
 # Development, changelog and publishing
 
 The repository builds the MIT-licensed `react-draft-recovery` ESM package.
-It has not been published; registry ownership and release configuration still
-need to be established before the first publication.
+`0.1.0-beta.0` was published with the `beta` tag from commit `2890d88`.
+Future automated releases still require the trusted publisher configuration below.
 
 ## Development
 
@@ -56,7 +56,7 @@ Run **Publish npm release** manually from **main**, supplying the reviewed tag (
 
 After publication, check the registry version, dist-tag and provenance, then install the version in clean npm and pnpm applications. If publishing fails, inspect npm first: a network error may occur after a successful upload. If that exact version is absent, fix the external configuration and dispatch the same tag again. Published versions cannot be overwritten; source changes require a new version/tag and release PR. A GitHub release can exist while npm publication is still pending.
 
-There is one publication destination: the npm registry. pnpm is a package manager that consumes it. After a beta is published, users can run `npm install react-draft-recovery@beta` or `pnpm add react-draft-recovery@beta`. These commands are not yet current installation instructions.
+There is one publication destination: the npm registry. pnpm is a package manager that consumes it. Users can run `npm install react-draft-recovery@beta` or `pnpm add react-draft-recovery@beta`. The initial published version is `0.1.0-beta.0`.
 
 ## References
 
