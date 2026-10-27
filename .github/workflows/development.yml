@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/check-repository.mjs
-      - name: Check API contract types and examples
+      - name: Check contracts and local recovery
         run: |
           npm ci --prefix contracts --ignore-scripts
           npm run --prefix contracts typecheck
@@ -30,7 +30,7 @@ jobs:
           if test -f package.json; then
             echo 'exists=true' >> "$GITHUB_OUTPUT"
           else
-            echo 'No package exists yet; runtime checks are not available.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Local recovery checks ran above; full package/build checks await package.json.' >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: pnpm/action-setup@v4
         if: steps.package.outputs.exists == 'true'

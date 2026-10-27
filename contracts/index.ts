@@ -8,7 +8,7 @@ export type Snapshot<T> =
   | { readonly kind: 'present'; readonly revision: string; readonly value: T }
   | { readonly kind: 'absent'; readonly revision: string };
 export type Failure =
-  | { readonly kind: 'retryable'; readonly message: string; readonly retryAfterMs?: number }
+  | { readonly kind: 'retryable'; readonly code?: string; readonly message: string; readonly retryAfterMs?: number }
   | { readonly kind: 'permanent'; readonly message: string; readonly code: string };
 export type Result<T> = { readonly kind: 'ok'; readonly value: T } | Failure;
 export type MutationResult<T> = Result<Snapshot<T>>
