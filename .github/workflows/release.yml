@@ -1,0 +1,59 @@
+name: Publish npm release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed release tag (vX.Y.Z or vX.Y.Z-beta.N)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: vars.NPM_PUBLISH_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Validate tag format
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]] || exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve reviewed tag on main
+        run: |
+          git rev-parse --verify "refs/tags/$RELEASE_TAG"
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" origin/main
+          git checkout --detach "refs/tags/$RELEASE_TAG"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: node scripts/check-repository.mjs --require-package
+      - uses: pnpm/action-setup@v4
+      - name: Build and verify release
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
+          pnpm run build
+          pnpm run test:package
+      - name: Pack and publish
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-release"
+          npm pack --json --pack-destination "$RUNNER_TEMP/npm-release" > "$RUNNER_TEMP/pack.json"
+          PACKAGE_FILE=$(node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pack.json")); if (p.length !== 1) process.exit(1); console.log(p[0].filename);')
+          DIST_TAG=latest
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then DIST_TAG=beta; fi
+          npm publish "$RUNNER_TEMP/npm-release/$PACKAGE_FILE" --access public --provenance --tag "$DIST_TAG" --ignore-scripts

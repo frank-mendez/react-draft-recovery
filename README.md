@@ -70,3 +70,7 @@ The plan is to publish one package to the npm registry, installable with either 
 The project is in its design phase. Use [GitHub Issues](https://github.com/frank-mendez/react-draft-recovery/issues) to share use cases, expected recovery behavior, and integration requirements.
 
 Development setup, contribution guidelines, and compatibility details will be added alongside the implementation. Please discuss substantial changes in an issue before starting a pull request.
+
+## Repository verification and release process
+
+See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows are infrastructure for the planned package; they do not indicate that the library is ready to install.
