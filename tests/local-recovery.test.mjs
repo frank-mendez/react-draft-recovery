@@ -210,8 +210,10 @@ test('failed account cleanup can be retried after disposal', async () => {
 });
 test('clearing an account stops sibling sessions before they can recreate its drafts', async () => {
   const f = fixture(); const a = await session(f); const b = await session(f);
-  await a.logout(); assert.equal((await b.persist()).code, 'disposed');
-  assert.throws(() => b.update({ title: 'Old account' }), /disposed/);
+  await a.logout(); assert.equal((await b.persist()).code, 'logged_out');
+  assert.doesNotThrow(() => b.update({ title: 'Old account' }));
+  assert.deepEqual(b.getSnapshot().value, { title: 'Old account' });
+  assert.equal((await f.storage.read(scope)).value, null);
 });
 test('late reads cannot restore a candidate discarded while discovery was pending', async () => {
   const f = fixture(record()); const s = await session(f); const read = f.storage.read; const gate = deferred();
@@ -267,7 +269,7 @@ test('a write failure remains visible when a competing read completes during tha
   const s = await session(f, { storage });
   s.update({ title: 'Own' }); const saving = s.persist();
   f.backing.setItem(storageKey(scope), JSON.stringify(record())); f.event(); await tick();
-  const error = { kind: 'permanent', code: 'storage_quota', message: 'Full' };
+  const error = { kind: 'retryable', code: 'storage_quota', message: 'Full' };
   gate.resolve(error); assert.deepEqual(await saving, error);
   assert.deepEqual(s.getSnapshot().error, error);
   assert.equal(s.getSnapshot().candidate.kind, 'available');
@@ -285,4 +287,134 @@ test('successful discard reconciles discovery that ran before an asynchronous re
   assert.equal(s.getSnapshot().candidate.kind, 'none');
   assert.equal(s.getSnapshot().externalChange, false);
   assert.equal((await s.persist()).kind, 'ok');
+});
+
+test('quota and unavailable storage return retryable failures without committing a write', async () => {
+  for (const name of ['QuotaExceededError', 'SecurityError']) {
+    const f = fixture(); const s = await session(f);
+    const set = f.backing.setItem;
+    f.backing.setItem = () => { throw new DOMException('private details', name); };
+    s.update({ title: 'Keep me' });
+    const failed = await s.persist();
+    assert.equal(failed.kind, 'retryable');
+    assert.equal(failed.code, name === 'QuotaExceededError' ? 'storage_quota' : 'storage_unavailable');
+    assert.deepEqual(s.getSnapshot().error, failed);
+    assert.equal(s.getSnapshot().dirty, true);
+    assert.equal(f.backing.getItem(storageKey(scope)), null);
+    f.backing.setItem = set;
+    assert.equal((await s.persist()).kind, 'ok');
+    assert.equal(s.getSnapshot().error, null);
+    assert.equal((await f.storage.read(scope)).value.payload, '{"title":"Keep me"}');
+  }
+  const denied = createLocalStorageAdapter({ getStorage() { throw new DOMException('denied', 'SecurityError'); } });
+  assert.equal((await denied.read(scope)).kind, 'retryable');
+  assert.equal((await denied.remove(scope)).kind, 'retryable');
+});
+
+test('persist waits for an empty refresh and saves its dispatch snapshot without a false recovery error', async () => {
+  const f = fixture(); const s = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = s.refresh(); s.update({ title: 'Autosave' });
+  const saving = s.persist();
+  s.update({ title: 'Later edit' }); await tick();
+  assert.equal(f.backing.getItem(storageKey(scope)), null);
+  gate.resolve(ok(null)); await refreshing;
+  assert.equal((await saving).kind, 'ok');
+  assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).payload, '{"title":"Autosave"}');
+  assert.equal(s.getSnapshot().error, null);
+  assert.deepEqual(s.getSnapshot().value, { title: 'Later edit' });
+  assert.equal(s.getSnapshot().dirty, true);
+});
+test('persist waits for discovery and visibly refuses to overwrite a discovered candidate', async () => {
+  const f = fixture(); const s = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = s.refresh(); const saving = s.persist();
+  gate.resolve(ok(record())); await refreshing;
+  assert.equal((await saving).code, 'recovery_pending');
+  assert.equal(s.getSnapshot().error.code, 'recovery_pending');
+  assert.equal(s.getSnapshot().candidate.kind, 'available');
+  assert.equal(f.backing.getItem(storageKey(scope)), null);
+});
+test('a read failure during queued persistence stays visible and prevents writing', async () => {
+  const f = fixture(); const s = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = s.refresh(); const saving = s.persist();
+  const error = { kind: 'retryable', code: 'storage_unavailable', message: 'Temporarily unavailable' };
+  gate.resolve(error); await refreshing;
+  assert.deepEqual(await saving, error);
+  assert.deepEqual(s.getSnapshot().error, error);
+  assert.equal(f.backing.getItem(storageKey(scope)), null);
+});
+
+test('sibling logout is observable and keeps input usable while blocking account storage', async () => {
+  const f = fixture(); const a = await session(f); const b = await session(f);
+  const bob = await session(f, { scope: { ...scope, userId: 'bob' } });
+  let notifications = 0; b.subscribe(() => notifications++);
+  b.update({ title: 'Unsaved' }); await a.logout();
+  assert.equal(b.getSnapshot().status, 'logged_out');
+  assert.equal(b.getSnapshot().error.code, 'logged_out');
+  assert.deepEqual(b.getSnapshot().value, { title: 'Unsaved' });
+  assert.equal(b.getSnapshot().candidate.kind, 'none');
+  assert.ok(notifications >= 2);
+  assert.doesNotThrow(() => b.update({ title: 'Typed after logout' }));
+  for (const action of [() => b.persist(), () => b.refresh(), () => b.restore(), () => b.discard()]) {
+    assert.equal((await action()).code, 'logged_out');
+  }
+  assert.equal((await f.storage.read(scope)).value, null);
+  assert.equal(bob.getSnapshot().status, 'active');
+  assert.equal((await bob.persist()).kind, 'ok');
+  b.dispose(); assert.throws(() => b.update({ title: 'Unmounted' }), /disposed/);
+});
+test('sibling logout invalidates a pending discovery and the persist waiting on it', async () => {
+  const f = fixture(); const a = await session(f); const b = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = b.refresh(); const saving = b.persist();
+  await a.logout(); b.update({ title: 'Still typing' });
+  gate.resolve(ok(record()));
+  assert.equal((await refreshing).code, 'logged_out');
+  assert.equal((await saving).code, 'logged_out');
+  assert.equal(b.getSnapshot().candidate.kind, 'none');
+  assert.equal(b.getSnapshot().status, 'logged_out');
+  assert.deepEqual(b.getSnapshot().value, { title: 'Still typing' });
+  assert.equal(f.backing.getItem(storageKey(scope)), null);
+});
+
+test('logout cancels persistence waiting on discovery without waiting for the read', async () => {
+  const f = fixture(); const s = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = s.refresh(); const saving = s.persist();
+  let complete = false;
+  const leaving = s.logout().then(result => { complete = true; return result; });
+  await tick();
+  try { assert.equal(complete, true); }
+  finally { gate.resolve(ok(null)); await refreshing; await leaving; }
+  assert.equal((await saving).code, 'disposed');
+  assert.equal(f.backing.getItem(storageKey(scope)), null);
+});
+
+test('persist follows a completed newer refresh without waiting for a stalled older read', async () => {
+  const f = fixture(); const s = await session(f); const old = deferred(); const latest = deferred();
+  let reads = 0; f.storage.read = () => ++reads === 1 ? old.promise : latest.promise;
+  const first = s.refresh(); s.update({ title: 'Save' });
+  let saved = false; const saving = s.persist().then(result => { saved = true; return result; });
+  const second = s.refresh(); latest.resolve(ok(null)); await second; await tick();
+  try { assert.equal(saved, true); }
+  finally { old.resolve(ok(record())); await first; }
+  assert.equal((await saving).kind, 'ok');
+  assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).payload, '{"title":"Save"}');
+  assert.equal(s.getSnapshot().candidate.kind, 'none');
+});
+
+test('discard retires an invalidated refresh and its earlier error before the next persist', async () => {
+  const f = fixture('{'); const s = await session(f); const gate = deferred();
+  f.storage.read = () => gate.promise;
+  const refreshing = s.refresh(); await s.discard();
+  let saved = false; const saving = s.persist().then(result => { saved = true; return result; });
+  await tick();
+  try { assert.equal(saved, true); }
+  finally { gate.resolve(ok(record())); await refreshing; }
+  assert.equal((await saving).kind, 'ok');
+  assert.equal(s.getSnapshot().error, null);
+  assert.equal(s.getSnapshot().candidate.kind, 'none');
+  assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).payload, '{"title":"Active"}');
 });

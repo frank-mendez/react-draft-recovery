@@ -41,8 +41,10 @@ if (opened.kind === 'ok') {
 
 `render` above is application code. Call `getSnapshot()` once for the initial UI;
 subscriptions announce subsequent changes. `update` changes input without storage
-I/O. `persist` immediately encodes a detached snapshot and writes it; edits made
-while the write is pending remain dirty. Dirty here tracks local persistence only,
+I/O. `persist` immediately encodes a detached snapshot. If discovery is in progress,
+it waits for the latest read before writing: absence allows the write, a candidate
+requires an explicit recovery decision, and a read failure is returned unchanged.
+Edits made while discovery or the write is pending remain dirty. Dirty here tracks local persistence only,
 not remote acknowledgement. There is no background scheduling. Keep application
 values immutable and have the codec validate unknown data before returning it.
 
@@ -81,16 +83,20 @@ remove an expired record. `maxAgeMs: 0` expires records immediately.
 
 Storage access/read/write/remove failures are returned as `Result` values and shown
 in snapshot `error`. Quota failures use `storage_quota`; other storage exceptions
-use `storage_unavailable`. Codec encode exceptions use `serialization_failed`, decode
+use `storage_unavailable`. Both are `retryable`, with an optional machine-readable
+`code` on the retryable failure contract. Failed localStorage writes do not commit;
+retry after freeing space or restoring access. Codec encode exceptions use `serialization_failed`, decode
 exceptions use `invalid_data`, and explicit codec failure results are preserved.
-Error messages do not include thrown exception text or draft content. The generic
-contract's `permanent` variant means no **automatic** retry; the application can retry
-a user action after correcting the condition.
+Error messages do not include thrown exception text or draft content. Invalid
+envelopes, unsupported data and serialization failures remain `permanent`: correct
+the data or codec before retrying. This primitive does not schedule retries itself.
 
 Creation succeeds even when local discovery fails; only invalid options fail
 creation. Retry a read with `refresh()`, a write with `persist()`, and deletion with
 `discard()` or `logout()`. One local mutation may run at a time; another receives
-`operation_in_progress`. Restore also returns that guard while discovery or a
+`operation_in_progress`. A real `recovery_pending` guard is shown in snapshot
+`error` unless an existing failure already explains the blockage. An empty refresh
+does not produce that guard. Restore returns `operation_in_progress` while discovery or a
 mutation is pending, so an old candidate cannot be consumed during validation of
 a replacement. A failed write never marks input clean. A failed discard
 keeps the candidate. Observer exceptions cannot change storage results. A failed
@@ -102,12 +108,21 @@ On logout or account switch, call and await `logout()` before opening the next
 account. It disposes the session, waits for its pending write/removal, and calls
 `clearUser(userId)`. Cleanup snapshots matching owned keys before removing them, so
 multiple documents/editors and corrupt payloads are removed without skipping keys.
-Other accounts and unrelated storage entries remain intact. Same-adapter sessions
-for that account are disposed before cleanup. Failed/partial cleanup is observable;
+Other accounts and unrelated storage entries remain intact. Same-adapter sibling
+sessions transition to observable `status: 'logged_out'` before cleanup, unsubscribe
+from storage events and clear their candidates. Their existing input is retained;
+`update()` continues accepting in-memory edits without throwing. Storage actions
+and restore return a permanent `logged_out` failure, also exposed in snapshot
+`error`; applications must create a new session after authentication changes.
+Other accounts remain active. Failed/partial cleanup is observable;
 `logout()` may be retried even after disposal.
 
 `dispose()` alone does not delete data: unmounting should preserve recovery. It
-stops subscriptions and rejects future actions; late asynchronous reads/writes
+stops subscriptions and rejects future actions (`update` and `subscribe` throw);
+this explicit teardown remains distinct from a sibling logout notification.
+Persistence waiting only on discovery is cancelled immediately on logout/disposal,
+so an unresponsive read cannot delay account cleanup. Already dispatched mutations
+are still drained. Late asynchronous reads/writes
 cannot update the disposed snapshot. It cannot cancel an already dispatched write.
 Custom asynchronous adapters must stop/drain **all** account writers before returning
 from `clearUser`; the built-in localStorage adapter performs its mutations

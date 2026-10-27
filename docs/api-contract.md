@@ -81,7 +81,8 @@ does not require durable pending-operation replay across browser restarts.
 - `permanent`: invalid data, forbidden operation or key misuse; no automatic retry.
 - `unknown`: mutation may have committed; follow the replay rules above.
 
-Adapters return these unions for expected failures. Reads can return retryable or
+Retryable failures may include an optional machine-readable `code` (for example,
+local `storage_quota` or `storage_unavailable`). Adapters return these unions for expected failures. Reads can return retryable or
 permanent failures because they cannot mutate. Unexpected read/storage exceptions
 become visible errors, never successful saves. Do not put secrets in messages.
 

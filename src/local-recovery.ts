@@ -3,6 +3,7 @@ import type { Codec, Failure, LocalRecord, Result, Scope, StorageAdapter } from 
 const prefix = 'react-draft-recovery:';
 const ok = <T>(value: T): Result<T> => ({ kind: 'ok', value });
 const failure = (code: string, message: string): Failure => ({ kind: 'permanent', code, message });
+const retryable = (code: string, message: string): Failure => ({ kind: 'retryable', code, message });
 const disposedError = () => failure('disposed', 'The recovery session is disposed.');
 const isScope = (value: unknown): value is Scope => typeof value === 'object' && value !== null &&
   ['userId', 'documentId', 'editorId'].every(key => typeof (value as Record<string, unknown>)[key] === 'string');
@@ -23,8 +24,8 @@ function keyScope(key: string): Scope | null {
 }
 function storageFailure(error: unknown): Failure {
   return error && typeof error === 'object' && 'name' in error && error.name === 'QuotaExceededError'
-    ? failure('storage_quota', 'Draft storage quota was exceeded; free space and retry.')
-    : failure('storage_unavailable', 'Draft storage is unavailable; retry when access is restored.');
+    ? retryable('storage_quota', 'Draft storage quota was exceeded; free space and retry.')
+    : retryable('storage_unavailable', 'Draft storage is unavailable; retry when access is restored.');
 }
 export interface StorageChange {
   readonly kind: 'changed' | 'logout';
@@ -138,6 +139,7 @@ export interface LocalRecoveryOptions<T> {
   readonly baseRevision?: string | null;
 }
 export interface LocalRecoveryState<T> {
+  readonly status: 'active' | 'logged_out';
   readonly value: T;
   readonly dirty: boolean;
   readonly candidate: { readonly kind: 'none' } | { readonly kind: 'available'; readonly value: T };
@@ -170,13 +172,21 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   const { storage, codec, maxAgeMs } = options;
   const clock = options.now ?? Date.now;
   const origin = Symbol('local-recovery');
-  let state: LocalRecoveryState<T> = Object.freeze({ value: options.initialValue, dirty: false,
+  let state: LocalRecoveryState<T> = Object.freeze({ status: 'active', value: options.initialValue, dirty: false,
     candidate: Object.freeze({ kind: 'none' as const }), externalChange: false, error: null });
   let disposed = false;
+  let loggedOut = false;
+  let stopWaiting!: () => void;
+  const stopped = new Promise<void>(resolve => { stopWaiting = resolve; });
+  const inactiveError = () => disposed ? disposedError() : failure('logged_out', 'This account was logged out; create a new session before using storage.');
   let blocked = false;
   let generation = 0;
   let discovery = 0;
   let discovering = false;
+  let refreshing: Promise<Result<void>> | null = null;
+  let signalRefresh!: () => void;
+  let refreshChanged = new Promise<void>(resolve => { signalRefresh = resolve; });
+  let discoveryError: Failure | null = null;
   let pending: Promise<Result<void>> | null = null;
   let baseRevision = options.baseRevision ?? null;
   let candidateRevision: string | null = null;
@@ -192,13 +202,13 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   const attempt = async <R>(operation: () => Promise<Result<R>>): Promise<Result<R>> => {
     try { return await operation(); } catch (error) { return storageFailure(error); }
   };
-  const refresh = async (): Promise<Result<void>> => {
-    if (disposed) return disposedError();
+  const discover = async (): Promise<Result<void>> => {
+    if (disposed || loggedOut) return inactiveError();
     const ticket = ++discovery;
     discovering = true;
     blocked = true;
     const result = await attempt(() => storage.read(scope));
-    if (disposed) return disposedError();
+    if (disposed || loggedOut) return inactiveError();
     if (ticket !== discovery) return ok(undefined);
     discovering = false;
     let error: Failure | null = result.kind === 'ok' ? null : result;
@@ -222,19 +232,35 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
         }
       }
     }
+    discoveryError = error;
     publish({ candidate: Object.freeze(candidate), error });
     return error ?? ok(undefined);
   };
-  const dispose = () => { if (!disposed) { disposed = true; discovery++; unsubscribe(); listeners.clear(); } };
+  const refresh = (): Promise<Result<void>> => {
+    signalRefresh();
+    refreshChanged = new Promise<void>(resolve => { signalRefresh = resolve; });
+    const task = discover();
+    refreshing = task;
+    const settled = () => { if (refreshing === task) refreshing = null; };
+    void task.then(settled, settled);
+    return task;
+  };
+  const recoveryPending = (): Failure => {
+    const error = failure('recovery_pending', 'Restore or discard the stored draft before persisting.');
+    if (!state.error) publish({ error });
+    return error;
+  };
+  const dispose = () => { if (!disposed) { disposed = true; discovery++; stopWaiting(); unsubscribe(); listeners.clear(); } };
   const mutate = (operation: () => Promise<Result<void>>): Promise<Result<void>> => {
-    if (disposed) return Promise.resolve(disposedError());
+    if (disposed || loggedOut) return Promise.resolve(inactiveError());
     if (pending) return Promise.resolve(failure('operation_in_progress', 'A local operation is in progress.'));
     // Install the guard before callbacks run, then encode synchronously at dispatch.
     let finish!: (result: Result<void>) => void;
     const current = new Promise<Result<void>>(resolve => { finish = resolve; });
     pending = current;
     void operation().then(result => { pending = null; finish(result); }, error => {
-      const result = storageFailure(error); pending = null; publish({ error: result }); finish(result);
+      const result = disposed || loggedOut ? inactiveError() : storageFailure(error);
+      pending = null; if (!loggedOut) publish({ error: result }); finish(result);
     });
     return current;
   };
@@ -243,7 +269,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
     subscribe(listener) { if (disposed) throw new Error('Recovery session is disposed'); listeners.add(listener); return () => { listeners.delete(listener); }; },
     update(value) { if (disposed) throw new Error('Recovery session is disposed'); generation++; publish({ value, dirty: true }); },
     restore() {
-      if (disposed) return disposedError();
+      if (disposed || loggedOut) return inactiveError();
       if (discovering || pending) return failure('operation_in_progress', 'A local operation is in progress.');
       if (state.candidate.kind === 'available') {
         generation++; blocked = false; mutationError = null; baseRevision = candidateRevision;
@@ -253,10 +279,9 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
     },
     refresh,
     persist: () => mutate(async () => {
-      if (disposed) return disposedError();
-      if (blocked) return failure('recovery_pending', 'Restore or discard the stored draft before persisting.');
+      if (disposed || loggedOut) return inactiveError();
+      if (blocked && !discovering) return recoveryPending();
       const savedGeneration = generation;
-      const ticket = discovery;
       let record: LocalRecord;
       try {
         const encoded = codec.encode(state.value);
@@ -266,22 +291,38 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       } catch {
         const error = failure('serialization_failed', 'The draft could not be serialized.'); mutationError = error; publish({ error }); return error;
       }
+      // Keep the dispatch snapshot, but wait until the latest discovery establishes
+      // whether there is a stored draft to protect. An empty read needs no decision.
+      let waited = false;
+      while (refreshing) {
+        waited = true;
+        const task = refreshing;
+        const reading = discovery;
+        const read = await Promise.race([task, refreshChanged.then(() => ok(undefined)), stopped.then(inactiveError)]);
+        if (disposed || loggedOut) return inactiveError();
+        if (reading !== discovery) continue;
+        if (read.kind !== 'ok') return read;
+      }
+      if (waited && discoveryError) return discoveryError;
+      if (blocked) return recoveryPending();
+      const ticket = discovery;
       const result = await attempt(() => storage.write(scope, record, origin));
-      if (disposed) return disposedError();
+      if (disposed || loggedOut) return inactiveError();
       mutationError = result.kind === 'ok' ? null : result;
       if (result.kind !== 'ok') publish({ error: result });
       else if (ticket === discovery) publish({ dirty: savedGeneration !== generation, error: null });
       return result;
     }),
     discard: () => mutate(async () => {
-      if (disposed) return disposedError();
+      if (disposed || loggedOut) return inactiveError();
       const ticket = ++discovery;
       discovering = false;
       const result = await attempt(() => storage.remove(scope, origin));
-      if (disposed) return disposedError();
+      if (disposed || loggedOut) return inactiveError();
       if (result.kind === 'ok') {
         const superseded = ticket !== discovery;
         discovery++; discovering = false; blocked = false; mutationError = null;
+        refreshing = null; discoveryError = null; signalRefresh();
         publish({ candidate: Object.freeze({ kind: 'none' }), externalChange: false, error: null });
         // A competing read may have observed the record before removal committed.
         // Re-read after removal rather than offering that stale candidate again.
@@ -298,8 +339,13 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   };
   try {
     unsubscribe = storage.subscribe(scope, change => {
-      if (disposed || change.origin === origin) return;
-      if (change.kind === 'logout') { dispose(); return; }
+      if (disposed || loggedOut || change.origin === origin) return;
+      if (change.kind === 'logout') {
+        loggedOut = true; discovery++; discovering = false; blocked = true; stopWaiting();
+        unsubscribe();
+        publish({ status: 'logged_out', candidate: Object.freeze({ kind: 'none' }), externalChange: false, error: inactiveError() });
+        return;
+      }
       blocked = true;
       publish({ externalChange: true, candidate: Object.freeze({ kind: 'none' }) });
       void refresh();
