@@ -1,15 +1,15 @@
 # Public API and persistence contract
 
 This is the initial design contract for issue #1. The authoritative type shapes
-are in [contracts/index.ts](../contracts/index.ts). They are not an installable
-package or implemented remote engine. The [local recovery primitive](local-recovery.md)
+are in [contracts/index.ts](../contracts/index.ts). They are implemented by the source-level [recovery engine](recovery-engine.md),
+not yet an installable package. The [local recovery primitive](local-recovery.md)
 implements storage and explicit local restoration. Scheduling, React bindings and
 production backend adapters remain separate implementation work. Names may change before beta.
 
 ## Boundaries and identity
 
-The core has no React, browser, server framework or database dependency. A future
-`CreateRecovery` factory accepts initial data, a codec, storage and optionally a
+The core has no React, browser, server framework or database dependency. The
+`createRecovery` factory accepts initial data, a codec, storage and optionally a
 remote adapter; it returns a controller after attempting local candidate discovery. Local storage or
 codec failures leave the candidate empty and expose the failure in state.error;
 they do not prevent creation. Only invalid options (permanent `invalid_options`)
@@ -36,7 +36,7 @@ snapshot with a revision. Absence has a stable server revision too: initial abse
 must have a token, and discard creates a new tombstone token. Tokens must not be
 reused after create/delete/recreate (avoid the ABA problem).
 
-Every save and discard supplies the last loaded expectedRevision. The backend
+Every save and discard supplies the active draft's base as expectedRevision. Initial discovery establishes that base; subsequent reads only update observed remote state. Restoring a local draft preserves its recorded base, so stale drafts conflict with newer remote revisions. A restored null base requires explicit reconciliation before remote mutation. The backend
 atomically compares that token and changes the record only on equality. A mismatch
 returns `conflict` with the current snapshot and does not modify it. A successful
 mutation returns a new revision and the committed snapshot. Saves return present;
@@ -106,8 +106,10 @@ Use remote revisions for remote safety. The [local recovery primitive](local-rec
 notifies about competing tab changes without replacing active input; it does not
 provide atomic local compare-and-swap.
 
+`persistLocal` writes/retries the latest local recovery snapshot and awaits queued local writes; it does not acknowledge remote persistence. Updates and restoration schedule local persistence automatically.
+
 `discardLocal` removes the recovery record only, retaining active input and remote
-state. `discardRemote` deletes only the scoped remote draft using the same revision
+state. Edits made during removal queue local persistence until removal settles; they are not dropped. A discard requested during an existing local write is guarded with `operation_in_progress`. `discardRemote` deletes only the scoped remote draft using the same revision
 and idempotency protocol as save; it does not delete a published application record,
 local recovery or active input. Applications explicitly compose these actions.
 A failed remote discard must not silently clear local recovery.
@@ -132,8 +134,7 @@ remote loading sets status `loading`; completion sets `idle` or `error`, preserv
 any local error. Local restore/update remain usable while loading or failed.
 `reloadRemote` retries discovery after failure, sets remote/status to loading, and
 returns the read result. It may run only while idle or error with no pending mutation; otherwise it returns
-permanent `operation_in_progress` without changing state. A successful load establishes
-the remote base without replacing active input. A failed load sets remote to failed.
+permanent `operation_in_progress` without changing state. The first successful load establishes the base for initial input. Later loads refresh observed remote state without rebasing active input, even when clean; only a successful mutation in the same draft lineage or explicit reconciliation advances its base. A failed load sets remote to failed.
 A controller with remote disabled starts idle (or error for a local failure).
 Remote mutation methods require a ready remote base. Dirty is measured against the last acknowledged active-data generation,
 not just the presence of a remote draft; initial input is clean until update/restore.
@@ -144,7 +145,7 @@ only that generation is acknowledged; subsequent edits remain dirty and intact.
 requires explicit reconciliation and a fresh save against the chosen current revision;
 `reconcile(current, value)` explicitly accepts a freshly loaded/current conflict
 snapshot as the new base and the application-selected active value, marks it dirty,
-and clears the failed/pending operation. It is allowed only after a conflict or
+and clears the failed/pending operation. It is allowed after restoring a draft with an unknown (null) base, after a conflict, or
 after an unknown or retryable operation has exhausted its safe replay window; the application
 must confirm this choice. For reconciliation the application loads a fresh snapshot
 through its remote adapter directly; this read does not change controller state.
@@ -166,6 +167,7 @@ changing pending operations. Apply guards in this order:
 | Another mutation is in flight | save/discardRemote/retry | `operation_in_progress` |
 | No retryable or unknown pending operation | retry | `no_pending_operation` |
 | Pending replay window exhausted | retry | `replay_window_expired` |
+| Retry delay has not elapsed | retry | `retry_not_ready` |
 
 A blocked call's permanent failure describes that attempted action, not the earlier
 uncertain mutation. `retry` is the only mutation allowed while unknown and uses the
@@ -183,8 +185,7 @@ persistence still follows updates. No pending retry returns `no_pending_operatio
 `dispose` stops notifications and future scheduling. Calling actions after disposal
 is invalid (result-returning actions return permanent `disposed`; update/restore/subscribe throw). Late
 completions must not update a new controller. Cancellation cannot undo a remote
-commit. Autosave debounce policy and React lifecycle integration belong to the engine
-and hooks issues, not this contract.
+commit. The engine exposes explicit save/retry actions. Application debounce policy and React lifecycle integration remain outside this implementation. See the [engine timing policy](recovery-engine.md) for bounded retry delays and replay margins.
 
 ## Contract examples and acceptance scenarios
 
@@ -208,11 +209,10 @@ A backend implementation must additionally pass these behavioral scenarios:
 Run `npm ci --prefix contracts --ignore-scripts` followed by
 `npm run --prefix contracts typecheck` to verify
 examples and negative type assertions. This checks contract/source types only; behavioral local recovery tests run
-separately below. Remote conformance tests will accompany the remote engine and adapters.
+separately below. The engine suite exercises remote coordination against deterministic adapter doubles; production backend conformance remains the responsibility of each adapter.
 
 Both development and release workflows run this same locked, script-disabled
 compiler installation, typecheck, and `npm run --prefix contracts test`.
 The example tests check failure-envelope preservation and codec validation. The
-local recovery tests exercise concrete storage and local session behavior; neither
-suite establishes remote engine conformance. The private contracts manifest is tooling
+local recovery tests exercise concrete storage and local session behavior; the separate engine suite checks concurrency, revision conflicts, retry identity and lifecycle behavior. The private contracts manifest is tooling
 only; it does not turn the repository into a published library package.

@@ -142,6 +142,8 @@ export interface LocalRecoveryState<T> {
   readonly status: 'active' | 'logged_out';
   readonly value: T;
   readonly dirty: boolean;
+  /** Revision associated with active input, including a restored candidate. */
+  readonly baseRevision: string | null;
   readonly candidate: { readonly kind: 'none' } | { readonly kind: 'available'; readonly value: T };
   readonly externalChange: boolean;
   readonly error: Failure | null;
@@ -151,7 +153,7 @@ export interface LocalRecovery<T> {
   subscribe(listener: () => void): () => void;
   update(value: T): void;
   restore(): Result<void>;
-  persist(): Promise<Result<void>>;
+  persist(baseRevision?: string | null): Promise<Result<void>>;
   refresh(): Promise<Result<void>>;
   discard(): Promise<Result<void>>;
   /** Dispose, drain the in-flight operation, then clear this account's drafts. Retryable after disposal. */
@@ -172,7 +174,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   const { storage, codec, maxAgeMs } = options;
   const clock = options.now ?? Date.now;
   const origin = Symbol('local-recovery');
-  let state: LocalRecoveryState<T> = Object.freeze({ status: 'active', value: options.initialValue, dirty: false,
+  let state: LocalRecoveryState<T> = Object.freeze({ status: 'active', value: options.initialValue, dirty: false, baseRevision: options.baseRevision ?? null,
     candidate: Object.freeze({ kind: 'none' as const }), externalChange: false, error: null });
   let disposed = false;
   let loggedOut = false;
@@ -273,12 +275,12 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       if (discovering || pending) return failure('operation_in_progress', 'A local operation is in progress.');
       if (state.candidate.kind === 'available') {
         generation++; blocked = false; mutationError = null; baseRevision = candidateRevision;
-        publish({ value: state.candidate.value, dirty: true, candidate: Object.freeze({ kind: 'none' }), externalChange: false, error: null });
+        publish({ value: state.candidate.value, dirty: true, baseRevision, candidate: Object.freeze({ kind: 'none' }), externalChange: false, error: null });
       }
       return ok(undefined);
     },
     refresh,
-    persist: () => mutate(async () => {
+    persist: (revision = baseRevision) => mutate(async () => {
       if (disposed || loggedOut) return inactiveError();
       if (blocked && !discovering) return recoveryPending();
       const savedGeneration = generation;
@@ -287,7 +289,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
         const encoded = codec.encode(state.value);
         if (encoded.kind !== 'ok') { mutationError = encoded; publish({ error: encoded }); return encoded; }
         if (typeof encoded.value !== 'string') throw new TypeError('Codec must return a string');
-        record = { formatVersion: 1, scope, baseRevision, dataVersion: codec.version, payload: encoded.value, savedAt: new Date(clock()).toISOString() };
+        record = { formatVersion: 1, scope, baseRevision: revision, dataVersion: codec.version, payload: encoded.value, savedAt: new Date(clock()).toISOString() };
       } catch {
         const error = failure('serialization_failed', 'The draft could not be serialized.'); mutationError = error; publish({ error }); return error;
       }

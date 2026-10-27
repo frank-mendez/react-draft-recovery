@@ -5,7 +5,11 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "exactOptionalPropertyTypes": true
+    "exactOptionalPropertyTypes": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["*.ts", "../src/*.ts"]
+  "include": [
+    "*.ts",
+    "../src/*.ts"
+  ]
 }

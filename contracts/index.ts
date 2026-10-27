@@ -1,4 +1,4 @@
-/** Design contract only: no runtime factory or published entry point yet. */
+/** Public contract; source implementation lives in src/recovery-engine.ts. No published entry point yet. */
 export interface Scope {
   readonly userId: string;
   readonly documentId: string;
@@ -69,6 +69,8 @@ export interface RecoveryController<T> {
   reloadRemote(): Promise<Result<Snapshot<T>>>;
   save(): Promise<MutationResult<T>>;
   retry(): Promise<MutationResult<T>>;
+  /** Persist/retry local recovery without acknowledging a remote save. */
+  persistLocal(): Promise<Result<void>>;
   discardLocal(): Promise<Result<void>>;
   discardRemote(): Promise<MutationResult<T>>;
   dispose(): void;
@@ -80,5 +82,5 @@ export interface RecoveryOptions<T> {
   readonly codec: Codec<T>;
   readonly remote?: RemoteAdapter<T>;
 }
-/** Signature for the future engine, not an implemented export. */
+/** Factory signature implemented by createRecovery in src/recovery-engine.ts. */
 export type CreateRecovery = <T>(options: RecoveryOptions<T>) => Promise<Result<RecoveryController<T>>>;

@@ -26,3 +26,9 @@ localStorage adapter and tested session implementation, including scoped envelop
 codec migration, expiration, failures, account cleanup and explicit competing-tab
 recovery. The original table remains a baseline record. Remote coordination, React
 integration and independent packaged consumers remain outstanding.
+
+Follow-up for issue #3: the [recovery engine](recovery-engine.md) now implements
+remote save/discard coordination, frozen retries, explicit reconciliation and
+generation-based dirty tracking. Deterministic tests cover reordered responses,
+response loss, tombstones and lifecycle isolation. Production backend conformance,
+React integration and packaged-consumer checks remain separate work.

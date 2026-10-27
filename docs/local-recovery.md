@@ -1,9 +1,8 @@
 # Local recovery
 
 Issue #2 is implemented in `src/local-recovery.ts`. This is a source-level local
-recovery primitive, not the full `CreateRecovery` remote engine or a published
-package. React bindings, scheduling/debounce, remote conflict resolution and package
-exports remain separate roadmap work.
+recovery primitive, composed by the [recovery engine](recovery-engine.md), and is not a published
+package. React bindings, scheduling/debounce and package exports remain separate roadmap work.
 
 ## Use
 
@@ -45,7 +44,10 @@ I/O. `persist` immediately encodes a detached snapshot. If discovery is in progr
 it waits for the latest read before writing: absence allows the write, a candidate
 requires an explicit recovery decision, and a read failure is returned unchanged.
 Edits made while discovery or the write is pending remain dirty. Dirty here tracks local persistence only,
-not remote acknowledgement. There is no background scheduling. Keep application
+not remote acknowledgement. Snapshot `baseRevision` exposes the initial/restored
+input revision. `persist(baseRevision)` optionally supplies a revision for that
+write only; the revision and payload are captured together before asynchronous
+discovery or writing. There is no background scheduling. Keep application
 values immutable and have the codec validate unknown data before returning it.
 
 ## Envelope, identity and migrations
