@@ -1,9 +1,8 @@
 # Local recovery
 
 Issue #2 is implemented in `src/local-recovery.ts`. This is a source-level local
-recovery primitive, not the full `CreateRecovery` remote engine or a published
-package. React bindings, scheduling/debounce, remote conflict resolution and package
-exports remain separate roadmap work.
+recovery primitive, composed by the [recovery engine](recovery-engine.md), and is not a published
+package. React bindings, scheduling/debounce and package exports remain separate roadmap work.
 
 ## Use
 

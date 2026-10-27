@@ -2,7 +2,7 @@
 
 Flexible autosave and draft recovery for React forms and editors, with configurable storage, backend adapters, and explicit conflict handling.
 
-> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and the design for the remaining library. An installable package and the full recovery engine are not available yet. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
+> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). React bindings and an installable package are not available yet. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
 
 ## Why this library?
 
@@ -58,7 +58,7 @@ The plan is to publish one package to the npm registry, installable with either 
 
 - [x] Define the [public API and persistence adapter contract](docs/api-contract.md).
 - [x] Implement versioned local recovery storage.
-- [ ] Implement and test the recovery engine, including overlapping saves and retries.
+- [x] Implement and test the recovery engine, including overlapping saves and retries.
 - [ ] Add React hooks and a minimal example application.
 - [ ] Verify account isolation, competing tabs, storage failures, and server rendering.
 - [ ] Validate the packed package in independent consumer applications.

@@ -1,15 +1,15 @@
 # Public API and persistence contract
 
 This is the initial design contract for issue #1. The authoritative type shapes
-are in [contracts/index.ts](../contracts/index.ts). They are not an installable
-package or implemented remote engine. The [local recovery primitive](local-recovery.md)
+are in [contracts/index.ts](../contracts/index.ts). They are implemented by the source-level [recovery engine](recovery-engine.md),
+not yet an installable package. The [local recovery primitive](local-recovery.md)
 implements storage and explicit local restoration. Scheduling, React bindings and
 production backend adapters remain separate implementation work. Names may change before beta.
 
 ## Boundaries and identity
 
-The core has no React, browser, server framework or database dependency. A future
-`CreateRecovery` factory accepts initial data, a codec, storage and optionally a
+The core has no React, browser, server framework or database dependency. The
+`createRecovery` factory accepts initial data, a codec, storage and optionally a
 remote adapter; it returns a controller after attempting local candidate discovery. Local storage or
 codec failures leave the candidate empty and expose the failure in state.error;
 they do not prevent creation. Only invalid options (permanent `invalid_options`)
@@ -106,6 +106,8 @@ Use remote revisions for remote safety. The [local recovery primitive](local-rec
 notifies about competing tab changes without replacing active input; it does not
 provide atomic local compare-and-swap.
 
+`persistLocal` writes/retries the latest local recovery snapshot and awaits queued local writes; it does not acknowledge remote persistence. Updates and restoration schedule local persistence automatically.
+
 `discardLocal` removes the recovery record only, retaining active input and remote
 state. `discardRemote` deletes only the scoped remote draft using the same revision
 and idempotency protocol as save; it does not delete a published application record,
@@ -166,6 +168,7 @@ changing pending operations. Apply guards in this order:
 | Another mutation is in flight | save/discardRemote/retry | `operation_in_progress` |
 | No retryable or unknown pending operation | retry | `no_pending_operation` |
 | Pending replay window exhausted | retry | `replay_window_expired` |
+| Retry delay has not elapsed | retry | `retry_not_ready` |
 
 A blocked call's permanent failure describes that attempted action, not the earlier
 uncertain mutation. `retry` is the only mutation allowed while unknown and uses the
@@ -183,8 +186,7 @@ persistence still follows updates. No pending retry returns `no_pending_operatio
 `dispose` stops notifications and future scheduling. Calling actions after disposal
 is invalid (result-returning actions return permanent `disposed`; update/restore/subscribe throw). Late
 completions must not update a new controller. Cancellation cannot undo a remote
-commit. Autosave debounce policy and React lifecycle integration belong to the engine
-and hooks issues, not this contract.
+commit. The engine exposes explicit save/retry actions. Application debounce policy and React lifecycle integration remain outside this implementation. See the [engine timing policy](recovery-engine.md) for bounded retry delays and replay margins.
 
 ## Contract examples and acceptance scenarios
 
@@ -208,11 +210,10 @@ A backend implementation must additionally pass these behavioral scenarios:
 Run `npm ci --prefix contracts --ignore-scripts` followed by
 `npm run --prefix contracts typecheck` to verify
 examples and negative type assertions. This checks contract/source types only; behavioral local recovery tests run
-separately below. Remote conformance tests will accompany the remote engine and adapters.
+separately below. The engine suite exercises remote coordination against deterministic adapter doubles; production backend conformance remains the responsibility of each adapter.
 
 Both development and release workflows run this same locked, script-disabled
 compiler installation, typecheck, and `npm run --prefix contracts test`.
 The example tests check failure-envelope preservation and codec validation. The
-local recovery tests exercise concrete storage and local session behavior; neither
-suite establishes remote engine conformance. The private contracts manifest is tooling
+local recovery tests exercise concrete storage and local session behavior; the separate engine suite checks concurrency, revision conflicts, retry identity and lifecycle behavior. The private contracts manifest is tooling
 only; it does not turn the repository into a published library package.
