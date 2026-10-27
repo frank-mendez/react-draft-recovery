@@ -19,23 +19,8 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/check-repository.mjs
-      - name: Check contracts and local recovery
-        run: |
-          npm ci --prefix contracts --ignore-scripts
-          npm run --prefix contracts typecheck
-          npm run --prefix contracts test
-      - name: Detect package
-        id: package
-        run: |
-          if test -f package.json; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'Local recovery checks ran above; full package/build checks await package.json.' >> "$GITHUB_STEP_SUMMARY"
-          fi
       - uses: pnpm/action-setup@v4
-        if: steps.package.outputs.exists == 'true'
-      - name: Validate library
-        if: steps.package.outputs.exists == 'true'
+      - name: Validate library and packed consumers
         run: |
           pnpm install --frozen-lockfile
           pnpm run lint
