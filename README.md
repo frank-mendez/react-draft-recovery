@@ -48,6 +48,8 @@ The library is intended to coordinate recovery; the application and backend rema
 - Real-time collaboration and automatic conflict merging are outside the initial scope.
 - Navigation integration will be documented per environment; universal route blocking is not an initial promise.
 
+For backend integration, use the [remote adapter conformance suite and migration guide](docs/remote-adapters.md), including an executable reference adapter and tests showing why conditional writes alone are insufficient.
+
 ## Installation
 
 The package name is `react-draft-recovery`, licensed under MIT. Install the initial beta with either package manager:
