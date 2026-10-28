@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-beta.4](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.3...v0.1.0-beta.4) (2026-10-28)
+
+
+### Features
+
+* discover drafts across editor instances and import legacy records ([620b9a0](https://github.com/frank-mendez/react-draft-recovery/commit/620b9a04ed8cc89f6f9ca6cc7cba109f59ce9e10))
+* discover recovery candidates across writer instances ([a2f5008](https://github.com/frank-mendez/react-draft-recovery/commit/a2f50084e16e13af71fa67cbc96b201747a01ab8))
+
+
+### Bug Fixes
+
+* address discovery review and quality gate findings ([506f314](https://github.com/frank-mendez/react-draft-recovery/commit/506f3143877726d5ab64e9a3380f3653b4c5f91c))
+
 ## [0.1.0-beta.3](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.2...v0.1.0-beta.3) (2026-10-28)
 
 
