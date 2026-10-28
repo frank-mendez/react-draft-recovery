@@ -22,9 +22,7 @@ function createFixture() {
   };
 }
 
-test('reference adapter conforms', async t => {
-  await runRemoteAdapterConformance(t.test.bind(t), createFixture);
-});
+await runRemoteAdapterConformance(test, createFixture);
 
 // These are expected assertion failures, not skipped/todo tests or swallowed errors.
 const naiveFailures = [
@@ -84,4 +82,22 @@ test('reference rejects non-JSON data and invalid retention settings', async () 
   for (const replayWindowMs of [0, -1, NaN, Infinity]) {
     assert.throws(() => createReferenceBackend({ replayWindowMs }), /Invalid replay window/);
   }
+});
+
+test('receipt cleanup preserves the inclusive deadline and stream revisions after expiry', async () => {
+  const f = createFixture();
+  const a = f.adapterFor('alice');
+  const req = { scope, operationId: 'retained', expectedRevision: (await a.load(scope)).value.revision,
+    value: { title: 'First', body: 'Text' } };
+  const saved = await a.save(req);
+  f.advanceTime(a.replayWindowMs);
+  const deleted = await a.discard({ ...req, operationId: 'at-boundary', expectedRevision: saved.value.revision });
+  assert.deepEqual(await a.save(req), saved);
+  f.advanceTime(1);
+  const recreated = await a.save({ ...req, operationId: 'after-boundary', expectedRevision: deleted.value.revision });
+  assert.equal(recreated.kind, 'ok');
+  assert.notEqual(recreated.value.revision, saved.value.revision);
+  assert.deepEqual(await a.save(req), { kind: 'conflict', current: recreated.value });
+  assert.deepEqual(await a.discard({ ...req, operationId: 'at-boundary', expectedRevision: saved.value.revision }), deleted);
+  assert.deepEqual(await a.load(scope), recreated);
 });

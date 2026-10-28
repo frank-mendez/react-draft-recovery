@@ -29,7 +29,13 @@ function canonicalJson(value: unknown): string {
       }
       if (Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null) throw new Error('Not plain JSON');
       if (Object.getOwnPropertySymbols(input).length) throw new Error('Not JSON');
-      return `{${Object.keys(input).sort().map(key => `${JSON.stringify(key)}:${encode((input as Record<string, unknown>)[key])}`).join(',')}}`;
+      // Canonical identity uses code-unit ordering, never locale-dependent collation.
+      const keys = Object.keys(input).sort((left, right) => {
+        if (left === right) return 0;
+        return left < right ? -1 : 1;
+      });
+      const fields = keys.map(key => JSON.stringify(key) + ':' + encode((input as Record<string, unknown>)[key]));
+      return `{${fields.join(',')}}`;
     } finally { ancestors.delete(input); }
   };
   return encode(value);
@@ -60,14 +66,21 @@ export function createReferenceBackend<T>(options: ReferenceBackendOptions<T>): 
     return current;
   };
   const failure = (code: string) => ({ kind: 'permanent' as const, code, message: code });
-  const validScope = (scope: Scope) => scope && [scope.userId, scope.documentId, scope.editorId].every(v => typeof v === 'string' && v.length > 0);
+  const collectExpiredReceipts = () => {
+    const currentTime = now();
+    for (const [key, receipt] of receipts) {
+      if (currentTime > receipt.expiresAt) receipts.delete(key);
+    }
+  };
+  const nonemptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+  const validScope = (scope: Scope) => scope && [scope.userId, scope.documentId, scope.editorId].every(nonemptyString);
   return {
     adapterFor(principal) {
       const authorized = (scope: Scope, action: 'load' | 'save' | 'discard') =>
         validScope(scope) && options.authorize(principal, scope, action);
       const mutate = (kind: 'save' | 'discard', req: Mutation & { readonly value?: T }): MutationResult<T> => {
         if (!authorized(req.scope, kind)) return failure('forbidden');
-        if (!req.operationId || typeof req.operationId !== 'string' || !req.expectedRevision || typeof req.expectedRevision !== 'string') return failure('invalid_request');
+        if (![req.operationId, req.expectedRevision].every(nonemptyString)) return failure('invalid_request');
         let fingerprint: string;
         try {
           fingerprint = canonicalJson([kind, req.scope.userId, req.scope.documentId, req.scope.editorId,
@@ -75,11 +88,11 @@ export function createReferenceBackend<T>(options: ReferenceBackendOptions<T>): 
         } catch { return failure('invalid_json'); }
         const key = streamKey(principal, req.scope);
         const receiptKey = JSON.stringify([key, req.operationId]);
+        collectExpiredReceipts();
         const receipt = receipts.get(receiptKey);
-        if (receipt && now() <= receipt.expiresAt) {
+        if (receipt) {
           return receipt.fingerprint === fingerprint ? structuredClone(receipt.result) : failure('idempotency_mismatch');
         }
-        if (receipt) receipts.delete(receiptKey);
         let result: MutationResult<T>;
         if (kind === 'save' && !options.validate(req.value)) {
           result = failure('invalid_value');

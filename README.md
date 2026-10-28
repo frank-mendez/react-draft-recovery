@@ -91,6 +91,19 @@ the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNex
 and Bundler resolution. Browser applications need a modern ES2022-capable runtime
 and bundler; browser storage remains optional through the storage adapter.
 
+## Developing from source
+
+Use Node 24+ for repository development and source tests (`nvm use` reads the
+provided `.nvmrc`). The package `engines.node >=22.14` floor applies to consumers
+of compiled package exports; it does not promise that uncompiled TypeScript tests
+run on Node 22.14. CI tests source on Node 24 and packed consumers on Node 22.14.
+
+```sh
+nvm use
+pnpm install --frozen-lockfile
+pnpm test
+```
+
 ## Roadmap
 
 - [x] Define the [public API and persistence adapter contract](docs/api-contract.md).

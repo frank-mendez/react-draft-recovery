@@ -65,7 +65,7 @@ export const remoteAdapterCases = {
       a.save(request(base.revision, 'one')),
       b.save(request(base.revision, 'two', { value: later })),
     ]);
-    assert.deepEqual(results.map(r => r.kind).sort(), ['conflict', 'ok']);
+    assert.deepEqual(results.map(r => r.kind).sort((left, right) => left.localeCompare(right)), ['conflict', 'ok']);
     const committed = snapshot(results.find(r => r.kind === 'ok'));
     assert.deepEqual(results.find(r => r.kind === 'conflict').current, committed);
     assert.deepEqual(await initial(a), committed);
@@ -77,7 +77,7 @@ export const remoteAdapterCases = {
       a.save(request(base.revision, 'save')),
       f.adapterFor('alice').discard(request(base.revision, 'discard')),
     ]);
-    assert.deepEqual(results.map(r => r.kind).sort(), ['conflict', 'ok']);
+    assert.deepEqual(results.map(r => r.kind).sort((left, right) => left.localeCompare(right)), ['conflict', 'ok']);
     const committed = snapshot(results.find(r => r.kind === 'ok'));
     assert.deepEqual(results.find(r => r.kind === 'conflict').current, committed);
     assert.deepEqual(await initial(a), committed);
@@ -89,7 +89,7 @@ export const remoteAdapterCases = {
       a.discard(request(base.revision, 'one')),
       f.adapterFor('alice').discard(request(base.revision, 'two')),
     ]);
-    assert.deepEqual(results.map(r => r.kind).sort(), ['conflict', 'ok']);
+    assert.deepEqual(results.map(r => r.kind).sort((left, right) => left.localeCompare(right)), ['conflict', 'ok']);
     const committed = snapshot(results.find(r => r.kind === 'ok'));
     assert.equal(committed.kind, 'absent');
     assert.notEqual(committed.revision, base.revision);
@@ -170,7 +170,7 @@ export const remoteAdapterCases = {
     const a = f.adapterFor('alice');
     const req = request((await initial(a)).revision, 'bound');
     const results = await Promise.all([a.save(req), f.adapterFor('alice').save({ ...req, value: later })]);
-    assert.deepEqual(results.map(r => r.kind).sort(), ['ok', 'permanent']);
+    assert.deepEqual(results.map(r => r.kind).sort((left, right) => left.localeCompare(right)), ['ok', 'permanent']);
     assert.equal(results.find(r => r.kind === 'permanent').code, 'idempotency_mismatch');
     assert.deepEqual(await initial(a), snapshot(results.find(r => r.kind === 'ok')));
   },

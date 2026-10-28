@@ -75,9 +75,10 @@ create authorized mutation receipts. A key mismatch leaves the original receipt 
 
 **Limits:** This backend is volatile and single-process. Restart loses rows,
 tombstones, receipts and the revision allocator, so it cannot honor a replay window
-across restarts. Do not use it for production persistence. Expired receipts are
-removed lazily on access; unused receipts and tombstones remain in memory without
-bound. Injected `now` must be monotonic; the default is `performance.now()`. Receipts
+across restarts. Do not use it for production persistence. Authorized mutations sweep all expired receipts, including operation IDs that
+are never retried. The sweep retains receipts at the exact deadline and removes
+them only after it. Cleanup is activity-driven: an idle backend retains receipts
+until its next mutation. Tombstones remain in memory without bound. Injected `now` must be monotonic; the default is `performance.now()`. Receipts
 remain available through the completion time plus `replayWindowMs` boundary. Beyond
 that boundary the reference may re-evaluate a request; clients must stop automatic
 retries and reconcile. Production receipt storage must survive restarts and scale
