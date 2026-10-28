@@ -125,3 +125,12 @@ Development setup, contribution guidelines, and compatibility details will be ad
 ## Repository verification and release process
 
 See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the package; publication remains a separate release step.
+
+### Cross-writer recovery discovery
+
+Use `createRecoveryDiscovery` from `react-draft-recovery/core` with the built-in
+storage adapter's `discovery` capability to offer drafts from earlier editor
+instances or build an account-scoped unfinished-document list. Candidates have
+stable IDs and explicit restore/discard actions; discovery preserves active input.
+Consumer adapters can expose legacy records for import to independent writer keys.
+See the [discovery and migration guide](docs/recovery-discovery.md).

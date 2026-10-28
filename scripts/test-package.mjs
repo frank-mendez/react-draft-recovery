@@ -29,7 +29,7 @@ try {
   assert.match(builtHook, /^['"]use client['"]/);
   assert.match(builtHook, /from ['"]react['"]/);
   const core = `import assert from 'node:assert/strict';
-import { createRecovery, storageKey } from '${pkg.name}/core';
+import { createRecovery, createLocalRecovery, createLocalStorageAdapter, createRecoveryDiscovery, storageKey } from '${pkg.name}/core';
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
 const options = { scope: { userId: 'u', documentId: 'd', editorId: 'e' }, initialValue: 'draft',
@@ -40,6 +40,23 @@ const result = await createRecovery(options);
 assert.equal(result.kind, 'ok');
 assert.equal(result.value.getSnapshot().value, 'draft');
 result.value.dispose();
+const data = new Map();
+const localStorage = createLocalStorageAdapter({ getStorage: () => ({
+  get length() { return data.size; }, key: i => [...data.keys()][i] ?? null,
+  getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key),
+}) });
+const first = await createLocalRecovery({ ...options, storage: localStorage });
+first.value.update('persisted by old editor');
+assert.equal((await first.value.persist()).kind, 'ok');
+first.value.dispose();
+const second = await createLocalRecovery({ ...options, scope: { ...options.scope, editorId: 'new' }, storage: localStorage });
+const discovery = createRecoveryDiscovery({ userId: 'u', documentId: 'd', getUserId: () => 'u', adapter: localStorage.discovery, codec: options.codec });
+const listed = await discovery.refresh();
+assert.equal(listed.kind, 'ok');
+assert.equal(listed.value.length, 1);
+assert.equal(second.value.getSnapshot().value, 'draft');
+assert.equal((await discovery.restore(listed.value[0].id, listed.value[0].revision)).value.value, 'persisted by old editor');
+second.value.dispose(); discovery.dispose();
 export { options };`;
   for (const manager of ['npm', 'pnpm']) {
     const dir = join(temp, `${manager}-core`); mkdirSync(dir);
