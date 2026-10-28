@@ -26,6 +26,11 @@ function storageFailure(error: unknown): Failure {
     ? retryable('storage_quota', 'Draft storage quota was exceeded; free space and retry.')
     : retryable('storage_unavailable', 'Draft storage is unavailable; retry when access is restored.');
 }
+/** Keep browser comparisons and mutations synchronous while satisfying async adapters. */
+function storageResult<T>(operation: () => Result<T>): Promise<Result<T>> {
+  try { return Promise.resolve(operation()); }
+  catch (error) { return Promise.resolve(storageFailure(error)); }
+}
 export interface StorageChange {
   readonly kind: 'changed' | 'logout';
   readonly origin?: symbol;
@@ -55,7 +60,7 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
     }
   };
   const matches = (scope: Scope, query: DiscoveryQuery) => scope.userId === query.userId &&
-    (query.documentId === undefined || scope.documentId === query.documentId);
+    (query.documentId === undefined || scope.documentId === query.documentId) && scope.editorId !== query.excludeEditorId;
   const readEntry = (storage: Storage, query: DiscoveryQuery, id: string) => {
     const scope = keyScope(id);
     if (!scope || !matches(scope, query)) return null;
@@ -68,8 +73,8 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
   };
   return {
     discovery: {
-      async list(query) {
-        try {
+      list(query) {
+        return storageResult(() => {
           const storage = getStorage();
           const keys = new Set<string>();
           for (let i = 0; i < storage.length; i++) {
@@ -77,19 +82,18 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
             if (key !== null) keys.add(key);
           }
           const entries = [];
-          for (const key of [...keys].sort()) {
+          for (const key of [...keys].sort((left, right) => left.localeCompare(right))) {
             const entry = readEntry(storage, query, key);
             if (entry) entries.push(entry);
           }
           return ok(entries);
-        } catch (error) { return storageFailure(error); }
+        });
       },
-      async read(query, id) {
-        try { return ok(readEntry(getStorage(), query, id)); }
-        catch (error) { return storageFailure(error); }
+      read(query, id) {
+        return storageResult(() => ok(readEntry(getStorage(), query, id)));
       },
-      async remove(query, id, revision) {
-        try {
+      remove(query, id, revision) {
+        return storageResult(() => {
           const scope = keyScope(id);
           if (!scope || !matches(scope, query)) return failure('unauthorized_candidate', 'Candidate is outside this account or document.');
           const storage = getStorage();
@@ -97,10 +101,10 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
           storage.removeItem(id);
           notify(s => storageKey(s) === id, { kind: 'changed' });
           return ok(undefined);
-        } catch (error) { return storageFailure(error); }
+        });
       },
-      async writeIfAbsent(scope, record) {
-        try {
+      writeIfAbsent(scope, record) {
+        return storageResult(() => {
           if (validateRecord(record, scope).kind !== 'ok') return failure('invalid_envelope', 'Invalid draft envelope.');
           const key = storageKey(scope);
           const storage = getStorage();
@@ -108,7 +112,7 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
           storage.setItem(key, JSON.stringify(record));
           notify(s => storageKey(s) === key, { kind: 'changed' });
           return ok(undefined);
-        } catch (error) { return storageFailure(error); }
+        });
       },
     },
     async read(scope) {

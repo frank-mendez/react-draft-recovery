@@ -5,6 +5,8 @@ export interface DiscoveryQuery {
   readonly userId: string;
   /** Omit to list unfinished documents for this user. */
   readonly documentId?: string;
+  /** Exclude the live writer from recovery choices and actions. */
+  readonly excludeEditorId?: string;
 }
 export interface DiscoveryEntry {
   /** Stable identity within this adapter, independent of record updates. */
@@ -36,6 +38,8 @@ export interface RecoveryDiscoveryOptions<T> extends DiscoveryQuery {
   readonly getUserId: () => string | null;
   readonly adapter: DiscoveryAdapter;
   readonly codec: Codec<T>;
+  /** Clock used to start a fresh retention period when importing. */
+  readonly now?: () => number;
 }
 export interface RecoveryDiscovery<T> {
   /** Enumerate without mutating editor input. Invalid records are skipped and retained. */
@@ -53,12 +57,15 @@ const fail = (code: string, message: string): Failure => ({ kind: 'permanent', c
 /** Optional, account-bound discovery session, independent of active editor state. */
 export function createRecoveryDiscovery<T>(options: RecoveryDiscoveryOptions<T>): RecoveryDiscovery<T> {
   const { adapter, codec, getUserId } = options;
+  const now = options.now ?? Date.now;
   if (typeof options.userId !== 'string' || (options.documentId !== undefined && typeof options.documentId !== 'string') ||
+      (options.excludeEditorId !== undefined && typeof options.excludeEditorId !== 'string') || typeof now !== 'function' ||
       typeof getUserId !== 'function' || !adapter || ['list', 'read', 'remove'].some(k => typeof (adapter as unknown as Record<string, unknown>)[k] !== 'function') ||
       !codec || !Number.isSafeInteger(codec.version) || codec.version < 0 || typeof codec.decode !== 'function' || typeof codec.encode !== 'function') {
     throw new TypeError('Invalid recovery discovery options');
   }
-  const query: DiscoveryQuery = Object.freeze({ userId: options.userId, ...(options.documentId === undefined ? {} : { documentId: options.documentId }) });
+  const query: DiscoveryQuery = Object.freeze({ userId: options.userId, ...(options.documentId === undefined ? {} : { documentId: options.documentId }),
+    ...(options.excludeEditorId === undefined ? {} : { excludeEditorId: options.excludeEditorId }) });
   let disposed = false;
   let invalidAccount = false;
   let generation = 0;
@@ -76,7 +83,7 @@ export function createRecoveryDiscovery<T>(options: RecoveryDiscoveryOptions<T>)
   const decode = (entry: DiscoveryEntry): Result<RecoveryCandidate<T>> => {
     if (!entry || typeof entry.id !== 'string' || !entry.id.length || typeof entry.revision !== 'string') return fail('invalid_candidate', 'Invalid candidate identity.');
     const scope = (entry.record as Partial<LocalRecord> | null)?.scope;
-    if (!isScope(scope) || scope.userId !== query.userId || (query.documentId !== undefined && scope.documentId !== query.documentId)) return fail('unauthorized_candidate', 'Candidate is outside this account or document.');
+    if (!isScope(scope) || scope.userId !== query.userId || scope.editorId === query.excludeEditorId || (query.documentId !== undefined && scope.documentId !== query.documentId)) return fail('unauthorized_candidate', 'Candidate is outside this account or document.');
     const checked = validateRecord(entry.record, scope);
     if (checked.kind !== 'ok') return checked;
     const record = Object.freeze({ ...checked.value, scope: Object.freeze({ ...scope }) });
@@ -93,7 +100,7 @@ export function createRecoveryDiscovery<T>(options: RecoveryDiscoveryOptions<T>)
     const read = await attempt(() => adapter.read(query, id));
     const inactive = guard(); if (inactive) return inactive;
     if (read.kind !== 'ok') return read;
-    if (!read.value || read.value.id !== id || read.value.revision !== previous.revision) return fail('candidate_changed', 'Refresh before acting on an updated candidate.');
+    if (read.value?.id !== id || read.value.revision !== previous.revision) return fail('candidate_changed', 'Refresh before acting on an updated candidate.');
     return decode(read.value);
   };
   return {
@@ -107,10 +114,13 @@ export function createRecoveryDiscovery<T>(options: RecoveryDiscoveryOptions<T>)
       const next = new Map<string, { revision: string }>();
       const result: RecoveryCandidate<T>[] = [];
       const duplicates = new Set<string>();
+      const seen = new Set<string>();
       for (const entry of listed.value) {
+        if (typeof entry?.id !== 'string') continue;
+        if (seen.has(entry.id)) { duplicates.add(entry.id); continue; }
+        seen.add(entry.id);
         const decoded = decode(entry);
         if (decoded.kind !== 'ok') continue;
-        if (next.has(entry.id)) { duplicates.add(entry.id); continue; }
         next.set(entry.id, { revision: entry.revision });
         result.push(decoded.value);
       }
@@ -138,7 +148,7 @@ export function createRecoveryDiscovery<T>(options: RecoveryDiscoveryOptions<T>)
       try {
         const encoded = codec.encode(restored.value.value);
         if (encoded.kind !== 'ok') return encoded;
-        record = { ...restored.value.record, scope: Object.freeze({ ...target }), dataVersion: codec.version, payload: encoded.value };
+        record = { ...restored.value.record, scope: Object.freeze({ ...target }), dataVersion: codec.version, payload: encoded.value, savedAt: new Date(now()).toISOString() };
         if (validateRecord(record, record.scope).kind !== 'ok') return fail('serialization_failed', 'The imported draft could not be serialized.');
       } catch { return fail('serialization_failed', 'The imported draft could not be serialized.'); }
       const inactive = guard(); if (inactive) return inactive;

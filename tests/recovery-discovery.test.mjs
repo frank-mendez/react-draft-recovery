@@ -198,3 +198,43 @@ test('background refresh cannot retarget cleanup after an older import', async (
   assert.equal((await f.storage.read(scope)).value.payload, '"v2"');
   assert.equal((await f.storage.read(target)).value.payload, '"v1"');
 });
+
+test('import renews retention so an old source remains recoverable after cleanup', async () => {
+  const f = fixture(); const now = Date.parse('2026-10-28T00:00:00.000Z');
+  await f.storage.write(scope, { ...record(), savedAt: '2026-01-01T00:00:00.000Z' });
+  const d = f.open({ now: () => now }); const [candidate] = (await d.refresh()).value;
+  const target = { ...scope, editorId: 'imported' };
+  assert.equal((await d.importCandidate(candidate.id, target, f.storage.discovery, candidate.revision)).kind, 'ok');
+  assert.equal((await d.discard(candidate.id, candidate.revision)).kind, 'ok');
+  const local = (await core.createLocalRecovery({ scope: target, initialValue: '', storage: f.storage, codec, maxAgeMs: 7 * 86400000, now: () => now })).value;
+  assert.equal(local.getSnapshot().candidate.kind, 'available');
+  local.restore(); assert.equal(local.getSnapshot().value, 'draft');
+  assert.equal((await f.storage.read(target)).value.savedAt, new Date(now).toISOString()); local.dispose();
+});
+
+test('excluded active writer cannot be listed, read or discarded', async () => {
+  const f = fixture(); const active = { ...scope, editorId: 'active' };
+  await f.storage.write(scope, record()); await f.storage.write(active, record(active));
+  const query = { userId: 'alice', documentId: 'doc', excludeEditorId: 'active' };
+  assert.equal((await f.storage.discovery.list(query)).value.length, 1);
+  assert.equal((await f.storage.discovery.read(query, core.storageKey(active))).value, null);
+  const revision = f.backing.getItem(core.storageKey(active));
+  assert.equal((await f.storage.discovery.remove(query, core.storageKey(active), revision)).code, 'unauthorized_candidate');
+  // Core also enforces the exclusion for consumer adapters that ignore it.
+  const adapter = { ...f.storage.discovery, list: () => f.storage.discovery.list({ userId: 'alice' }) };
+  const d = f.open({ adapter, excludeEditorId: 'active' });
+  assert.deepEqual((await d.refresh()).value.map(c => c.record.scope.editorId), ['old']);
+  assert.equal((await d.discard(core.storageKey(active), revision)).code, 'unknown_candidate');
+  assert.notEqual((await f.storage.read(active)).value, null);
+});
+
+test('duplicate IDs are rejected even when either entry fails decoding', async () => {
+  for (const reverse of [false, true]) {
+    const f = fixture(); const valid = { id: 'duplicate', revision: '1', record: record() };
+    const entries = [valid, { ...valid, revision: '2', record: null }];
+    if (reverse) entries.reverse();
+    const d = f.open({ adapter: { ...f.storage.discovery, list: async () => ok(entries) } });
+    assert.deepEqual((await d.refresh()).value, []);
+    assert.equal((await d.discard(valid.id, valid.revision)).code, 'unknown_candidate');
+  }
+});

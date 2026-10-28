@@ -12,6 +12,7 @@ const discovery = createRecoveryDiscovery({
   userId: account.id,
   getUserId: () => auth.currentUser?.id ?? null,
   documentId: document.id,
+  excludeEditorId: activeEditorId,
   adapter: storage.discovery,
   codec,
 });
@@ -26,6 +27,11 @@ Malformed envelopes, unsupported formats, undecodable values and duplicate IDs
 are skipped without deleting their records. Storage failures are returned as
 `Result` failures. Discovery does not apply the local controller's `maxAgeMs`;
 consumers may filter choices by `record.savedAt` according to their retention policy.
+
+Set `excludeEditorId` to the active writer ID when offering recovery from earlier
+editors. The built-in adapter and core both enforce this exclusion for discovery
+and actions, so the picker cannot discard the live writer’s autosaved record. Omit
+it when intentionally listing all writers.
 
 To build an unfinished-document list, omit `documentId`, then group returned
 candidates by `record.scope.documentId`. Every operation is bound to the original
@@ -67,7 +73,9 @@ const imported = await discovery.importCandidate(selected.id, freshWriterScope, 
 if (imported.kind === 'ok') {
   // Construct a local controller for freshWriterScope, or refresh one already open.
   await local.refresh();
-  local.restore(); // Explicit action applies the imported value and base revision.
+  if (local.getSnapshot().candidate.kind === 'available') {
+    local.restore(); // Explicit action applies the imported value and base revision.
+  }
 }
 ```
 
@@ -134,8 +142,13 @@ if (imported.kind === 'ok') {
 ```
 
 Import rereads the selected revision, decodes it, encodes the current data version,
-and persists a normalized replacement to an unused key. It preserves the source
-saved timestamp and base revision. It **never removes the source automatically**.
+and persists a normalized replacement to an unused key. It preserves the source base revision and stamps `savedAt` with the import time,
+starting a fresh retention period so an old source is not immediately expired by
+the destination controller’s `maxAgeMs`. The optional discovery `now` clock
+defaults to `Date.now`; use the same clock as the destination controller when
+injecting one. The original timestamp remains on the source candidate/record. It **never removes the source automatically**.
+When handing off to a local controller, confirm its candidate is available before
+source cleanup (a zero retention window or elapsed time can still expire it).
 Only discard the same selected ID and revision after successful persistence; a
 background refresh cannot authorize cleanup of a newly updated source. Quota errors,
 encoding failures, occupied destinations and account changes leave originals intact.
