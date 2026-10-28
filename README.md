@@ -48,6 +48,8 @@ The library is intended to coordinate recovery; the application and backend rema
 - Real-time collaboration and automatic conflict merging are outside the initial scope.
 - Navigation integration will be documented per environment; universal route blocking is not an initial promise.
 
+For backend integration, use the [remote adapter conformance suite and migration guide](docs/remote-adapters.md), including an executable reference adapter and tests showing why conditional writes alone are insufficient.
+
 ## Installation
 
 The package name is `react-draft-recovery`, licensed under MIT. Install the initial beta with either package manager:
@@ -88,6 +90,19 @@ Node 24. Development and source tests use Node 24+. React 18.3.1+ and 19 are sup
 the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNext
 and Bundler resolution. Browser applications need a modern ES2022-capable runtime
 and bundler; browser storage remains optional through the storage adapter.
+
+## Developing from source
+
+Use Node 24+ for repository development and source tests (`nvm use` reads the
+provided `.nvmrc`). The package `engines.node >=22.14` floor applies to consumers
+of compiled package exports; it does not promise that uncompiled TypeScript tests
+run on Node 22.14. CI tests source on Node 24 and packed consumers on Node 22.14.
+
+```sh
+nvm use
+pnpm install --frozen-lockfile
+pnpm test
+```
 
 ## Roadmap
 

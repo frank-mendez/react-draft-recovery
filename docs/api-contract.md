@@ -190,7 +190,9 @@ commit. The engine exposes explicit save/retry actions. Application debounce pol
 ## Contract examples and acceptance scenarios
 
 The [typechecked examples](../contracts/examples.ts) demonstrate adapter consumers.
-A backend implementation must additionally pass these behavioral scenarios:
+The [reusable conformance suite and reference adapter](remote-adapters.md) exercise
+backend protocol requirements and explain migration from simpler APIs. A backend
+implementation must additionally pass these behavioral scenarios:
 
 | Scenario | Required result |
 | --- | --- |
@@ -209,7 +211,8 @@ A backend implementation must additionally pass these behavioral scenarios:
 Run `npm ci --prefix contracts --ignore-scripts` followed by
 `npm run --prefix contracts typecheck` to verify
 examples and negative type assertions. This checks contract/source types only; behavioral local recovery tests run
-separately below. The engine suite exercises remote coordination against deterministic adapter doubles; production backend conformance remains the responsibility of each adapter.
+separately below. The engine suite exercises remote coordination against deterministic adapter doubles; the reusable conformance suite can be run against each real backend via a fixture.
+Production durability and authorization validation remain the responsibility of each adapter.
 
 Both development and release workflows run this same locked, script-disabled
 compiler installation, typecheck, and `npm run --prefix contracts test`.
