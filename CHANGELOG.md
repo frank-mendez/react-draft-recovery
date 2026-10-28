@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-beta.3](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.2...v0.1.0-beta.3) (2026-10-28)
+
+
+### Features
+
+* add remote adapter conformance suite and migration guide ([b388802](https://github.com/frank-mendez/react-draft-recovery/commit/b388802f33d2519ba4d1962bfb19e258f1487506))
+* add remote adapter conformance suite and migration guide ([549b496](https://github.com/frank-mendez/react-draft-recovery/commit/549b496a728ee11fc854f34df20f08c21e30e4a7))
+
+
+### Bug Fixes
+
+* address adapter quality gate and review feedback ([1ecb8d1](https://github.com/frank-mendez/react-draft-recovery/commit/1ecb8d1194cf25de8a310545fb1de5395e7ddf16))
+
 ## [0.1.0-beta.2](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.1...v0.1.0-beta.2) (2026-10-27)
 
 
