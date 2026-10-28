@@ -168,3 +168,10 @@ quota/permission errors, corrupt payloads, migration, expiration, account cleanu
 competing notifications, and delayed asynchronous operations. These deterministic
 checks do not establish a real-browser compatibility matrix or published-package
 compatibility; those remain part of integration/package verification.
+
+## Cross-writer discovery and legacy import
+
+The built-in adapter exposes an optional `discovery` capability for listing drafts
+across editor IDs or documents within one account. See [recovery discovery](recovery-discovery.md)
+for explicit restore/discard, safe versioned import, and cross-tab atomicity limits.
+Existing adapters and exact-scope controllers retain their current behavior.

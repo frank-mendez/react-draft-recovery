@@ -1,3 +1,5 @@
+import { isScope, validateRecord } from './local-record.ts';
+import type { DiscoveryAdapter, DiscoveryImportStorage, DiscoveryQuery } from './recovery-discovery.ts';
 import type { Codec, Failure, LocalRecord, Result, Scope, StorageAdapter } from '../contracts/index.js';
 
 const prefix = 'react-draft-recovery:';
@@ -5,9 +7,6 @@ const ok = <T>(value: T): Result<T> => ({ kind: 'ok', value });
 const failure = (code: string, message: string): Failure => ({ kind: 'permanent', code, message });
 const retryable = (code: string, message: string): Failure => ({ kind: 'retryable', code, message });
 const disposedError = () => failure('disposed', 'The recovery session is disposed.');
-const isScope = (value: unknown): value is Scope => typeof value === 'object' && value !== null &&
-  ['userId', 'documentId', 'editorId'].every(key => typeof (value as Record<string, unknown>)[key] === 'string');
-
 /** A stable namespace plus an exact JSON tuple, never delimiter concatenation. */
 export function storageKey(scope: Scope): string {
   if (!isScope(scope)) throw new TypeError('Invalid scope');
@@ -32,6 +31,8 @@ export interface StorageChange {
   readonly origin?: symbol;
 }
 export interface LocalStorageAdapter extends StorageAdapter {
+  /** Optional cross-writer enumeration; existing custom adapters need not implement it. */
+  readonly discovery?: DiscoveryAdapter & DiscoveryImportStorage;
   write(scope: Scope, record: LocalRecord, origin?: symbol): Promise<Result<void>>;
   remove(scope: Scope, origin?: symbol): Promise<Result<void>>;
   /** Removes all owned keys for this account, even when their payload is corrupt. */
@@ -44,7 +45,7 @@ export interface BrowserStorageOptions {
 }
 
 /** No browser globals are accessed until an operation or subscription occurs. */
-export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): LocalStorageAdapter {
+export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): LocalStorageAdapter & { readonly discovery: DiscoveryAdapter & DiscoveryImportStorage } {
   const getStorage = options.getStorage ?? (() => globalThis.localStorage);
   const listeners = new Set<{ scope: Scope; listener: (change: StorageChange) => void }>();
   const notify = (matches: (scope: Scope) => boolean, change: StorageChange) => {
@@ -53,7 +54,63 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
       try { entry.listener(change); } catch { /* isolate application observers */ }
     }
   };
+  const matches = (scope: Scope, query: DiscoveryQuery) => scope.userId === query.userId &&
+    (query.documentId === undefined || scope.documentId === query.documentId);
+  const readEntry = (storage: Storage, query: DiscoveryQuery, id: string) => {
+    const scope = keyScope(id);
+    if (!scope || !matches(scope, query)) return null;
+    const raw = storage.getItem(id);
+    if (raw === null) return null;
+    try {
+      const record = validateRecord(JSON.parse(raw), scope);
+      return record.kind === 'ok' ? { id, revision: raw, record: record.value } : null;
+    } catch { return null; }
+  };
   return {
+    discovery: {
+      async list(query) {
+        try {
+          const storage = getStorage();
+          const keys = new Set<string>();
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (key !== null) keys.add(key);
+          }
+          const entries = [];
+          for (const key of [...keys].sort()) {
+            const entry = readEntry(storage, query, key);
+            if (entry) entries.push(entry);
+          }
+          return ok(entries);
+        } catch (error) { return storageFailure(error); }
+      },
+      async read(query, id) {
+        try { return ok(readEntry(getStorage(), query, id)); }
+        catch (error) { return storageFailure(error); }
+      },
+      async remove(query, id, revision) {
+        try {
+          const scope = keyScope(id);
+          if (!scope || !matches(scope, query)) return failure('unauthorized_candidate', 'Candidate is outside this account or document.');
+          const storage = getStorage();
+          if (storage.getItem(id) !== revision) return failure('candidate_changed', 'Refresh before acting on an updated candidate.');
+          storage.removeItem(id);
+          notify(s => storageKey(s) === id, { kind: 'changed' });
+          return ok(undefined);
+        } catch (error) { return storageFailure(error); }
+      },
+      async writeIfAbsent(scope, record) {
+        try {
+          if (validateRecord(record, scope).kind !== 'ok') return failure('invalid_envelope', 'Invalid draft envelope.');
+          const key = storageKey(scope);
+          const storage = getStorage();
+          if (storage.getItem(key) !== null) return failure('destination_exists', 'Import requires an unused writer key.');
+          storage.setItem(key, JSON.stringify(record));
+          notify(s => storageKey(s) === key, { kind: 'changed' });
+          return ok(undefined);
+        } catch (error) { return storageFailure(error); }
+      },
+    },
     async read(scope) {
       try {
         const raw = getStorage().getItem(storageKey(scope));
@@ -116,17 +173,6 @@ export function createLocalStorageAdapter(options: BrowserStorageOptions = {}): 
   };
 }
 
-function validateRecord(value: unknown, scope: Scope): Result<LocalRecord> {
-  if (typeof value !== 'object' || value === null) return failure('invalid_envelope', 'Invalid draft envelope.');
-  const r = value as Partial<LocalRecord>;
-  if (r.formatVersion !== 1 || !isScope(r.scope) || storageKey(r.scope) !== storageKey(scope) ||
-    !(r.baseRevision === null || (typeof r.baseRevision === 'string' && r.baseRevision.length > 0)) ||
-    !Number.isSafeInteger(r.dataVersion) || (r.dataVersion ?? -1) < 0 || typeof r.payload !== 'string' ||
-    typeof r.savedAt !== 'string' || !Number.isFinite(Date.parse(r.savedAt))) {
-    return failure('invalid_envelope', 'Invalid or unsupported draft envelope.');
-  }
-  return ok(r as LocalRecord);
-}
 
 export interface LocalRecoveryOptions<T> {
   readonly scope: Scope;
