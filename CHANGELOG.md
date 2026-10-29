@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-beta.6](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.5...v0.1.0-beta.6) (2026-10-29)
+
+
+### Features
+
+* add opt-in autosave scheduler and browser lifecycle example ([5f81bf9](https://github.com/frank-mendez/react-draft-recovery/commit/5f81bf925fd09813dd295d29863385aa66b887d3))
+* add opt-in autosave scheduler and browser lifecycle example ([cde1a52](https://github.com/frank-mendez/react-draft-recovery/commit/cde1a5287c831f99833ef4d0c11a6dd6b18c305f))
+
+
+### Bug Fixes
+
+* address autosave review edge cases ([4b4c49c](https://github.com/frank-mendez/react-draft-recovery/commit/4b4c49c06ca8b7b970b4e3f84685f38767f75297))
+
 ## [0.1.0-beta.5](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.4...v0.1.0-beta.5) (2026-10-29)
 
 
