@@ -37,6 +37,12 @@ validation and human approval in the application. The server must enforce its ow
 authorization, validation and editorial rules; the library does not grant approval.
 The callback must not wait for a recovery save/retry: those actions are paused.
 
+This example intentionally keeps human approval inside the pause so that the
+approved snapshot is exactly the submitted one. Remote recovery autosave stays
+paused for the entire dialog, potentially minutes; cross-device recovery will not
+receive new edits during that interval. Local persistence and editing continue.
+Show this state in the UI and let the user cancel approval to resume scheduling.
+
 ## Two independent acknowledgements
 
 - `state.dirty` describes recovery persistence, as before.
@@ -52,11 +58,17 @@ If A is submitted and the user types B, success acknowledges A only. B remains
 save success alone never clears `document.dirty`. Equality is generation-based:
 retyping the same value is conservatively treated as an edit.
 
-The document option initializes the session's reference; omit it for an ID equal
-to `scope.documentId` and an unknown (`null`) version. In React, keep options stable;
+The document option initializes the session's authoritative reference; omitting it
+uses `{ id: null, version: null }` and accepts the first successful server ID.
+For an existing document, supply its ID/version explicitly. Recovery keys are never
+inferred to be server IDs. In React, keep options stable;
 changing this option does not replace the active session's reference. A successful
 `saveDocument` advances it. `reconcile` remains a recovery conflict-resolution API,
-not an external acknowledgement or document-token update API.
+not an external acknowledgement or document-token update API. Reconciliation that
+retains the exact current snapshot (`reconcile(current, controller.getSnapshot().value)`)
+preserves an existing document acknowledgement. Merged/replaced values are treated
+as edits; already-dirty input remains dirty. Recovery conflicts still require this
+explicit decision, including conflicts from optional cleanup.
 
 ## Pending, failed and uncertain work
 

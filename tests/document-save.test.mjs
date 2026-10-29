@@ -242,3 +242,48 @@ test('missing document response is unknown and leaves input unacknowledged', asy
   assert.equal(f.c.getSnapshot().document.dirty, true);
   assert.equal(f.c.getSnapshot().document.saving, false);
 });
+
+test('omitted document reference accepts a server ID independent of the recovery key', async () => {
+  const f = await fixture();
+  const opened = await createRecovery({ scope: { userId: 'u', documentId: 'draft-key-1', editorId: 'e' },
+    initialValue: { title: 'Initial' }, codec, storage: f.storage });
+  const c = opened.value;
+  assert.deepEqual(c.getSnapshot().document.reference, { id: null, version: null });
+  c.update({ title: 'A' });
+  const result = await c.saveDocument(async request => {
+    assert.deepEqual(request.document, { id: null, version: null });
+    return saved('server-42', 'v1');
+  });
+  assert.equal(result.kind, 'ok'); assert.equal(c.getSnapshot().document.dirty, false);
+  assert.equal(c.getSnapshot().document.reference.id, 'server-42');
+  assert.equal(f.record().scope.documentId, 'draft-key-1');
+  assert.equal((await c.saveDocument(async () => saved('different-server-id'))).kind, 'unknown');
+});
+
+test('reconciling cleanup with the current acknowledged snapshot preserves document cleanliness', async () => {
+  const f = await fixture(); f.c.update({ title: 'A' }); await f.c.save();
+  const newer = { kind: 'present', revision: 'other', value: { title: 'Other writer' } };
+  f.remote.discard = async () => ({ kind: 'conflict', current: newer });
+  await f.c.saveDocument(async () => saved());
+  assert.equal((await f.c.saveDocument(async () => { assert.fail('unresolved recovery conflict'); })).code, 'reconciliation_required');
+  const notifications = [];
+  const stop = f.c.subscribe(() => notifications.push(f.c.getSnapshot().document.dirty));
+  assert.equal(f.c.reconcile(newer, f.c.getSnapshot().value).kind, 'ok');
+  await f.c.persistLocal(); stop();
+  assert.equal(f.c.getSnapshot().document.dirty, false);
+  assert.equal(notifications.includes(true), false);
+  assert.equal(f.c.getSnapshot().dirty, true);
+  assert.equal(f.record().baseRevision, 'other');
+  assert.equal((await f.c.saveDocument(async () => saved('doc-1', 'v3'))).kind, 'ok');
+});
+
+for (const edited of [false, true]) test(`reconciliation does not acknowledge ${edited ? 'existing edits' : 'a merged value'}`, async () => {
+  const f = await fixture(); f.c.update({ title: 'A' }); await f.c.save();
+  const newer = { kind: 'present', revision: 'other', value: { title: 'Other writer' } };
+  f.remote.discard = async () => ({ kind: 'conflict', current: newer });
+  await f.c.saveDocument(async () => saved());
+  if (edited) f.c.update({ title: 'B' });
+  const value = edited ? f.c.getSnapshot().value : { title: 'Merged' };
+  assert.equal(f.c.reconcile(newer, value).kind, 'ok');
+  assert.equal(f.c.getSnapshot().document.dirty, true);
+});

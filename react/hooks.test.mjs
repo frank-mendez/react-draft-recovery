@@ -39,6 +39,7 @@ test('SSR imports and rendering do not access browser storage or start discovery
   const f = fixture();
   assert.equal(renderToString(h(Editor, { options: f.options })), '<p>initial:loading</p>');
   assert.equal(f.reads(), 0); assert.equal(latest.actions, null);
+  assert.deepEqual(latest.state.document.reference, { id: null, version: null });
 });
 
 test('hydrates initial markup before discovering local recovery', async () => {
@@ -251,7 +252,7 @@ test('reveal does not drain a queued edit over an unseen competing record', { sk
 });
 
 test('document save actions expose creation acknowledgement without remounting or losing later edits', async () => {
-  const f = fixture(); f.options.document = { id: null, version: null };
+  const f = fixture();
   const d = dom(), root = createRoot(d.container);
   try {
     await act(async () => root.render(h(Editor, { options: f.options })));

@@ -11,6 +11,7 @@ export async function publishArticle(
     if (!request.value.title.trim()) {
       return { kind: 'permanent', code: 'validation_failed', message: 'A title is required.' };
     }
+    // Remote recovery stays paused while the dialog is open; local edits persist.
     if (!await approve(request.value)) {
       return { kind: 'permanent', code: 'approval_required', message: 'Publication was not approved.' };
     }

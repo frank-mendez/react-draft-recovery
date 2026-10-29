@@ -1,4 +1,4 @@
-import type { DocumentReference, Failure, Mutation, MutationResult, RecoveryController, RecoveryOptions, RecoveryState, Result, Snapshot } from '../contracts/index.js';
+import type { DocumentReference, DocumentSubmission, Failure, Mutation, MutationResult, RecoveryController, RecoveryOptions, RecoveryState, Result, Snapshot } from '../contracts/index.js';
 import { createLocalRecovery } from './local-recovery.ts';
 import type { LocalStorageAdapter } from './local-recovery.js';
 
@@ -15,6 +15,22 @@ const validDocument = (value: DocumentReference): boolean => !!value &&
   (value.version === null || typeof value.version === 'string' && value.version.length > 0);
 const unavailable = (): Failure => ({ kind: 'retryable', code: 'remote_unavailable', message: 'Remote discovery failed.' });
 const uncertain = (): MutationResult<never> => ({ kind: 'unknown', message: 'The remote mutation may have committed.' });
+
+/** Validate external acknowledgements before advancing document identity. */
+async function submitDocument<T>(submit: DocumentSubmission<T>, value: T, document: DocumentReference): ReturnType<DocumentSubmission<T>> {
+  let result;
+  try { result = await submit(Object.freeze({ value, document })); }
+  catch { return { kind: 'unknown', message: 'The document save may have committed; verify its outcome before resubmitting.' }; }
+  if (!result || !['ok', 'permanent', 'retryable', 'unknown'].includes(result.kind)) {
+    return { kind: 'unknown', message: 'The document save returned an invalid acknowledgement; verify its outcome.' };
+  }
+  if (result.kind !== 'ok') return result;
+  if (!validDocument(result.value) || result.value.id === null || result.value.version === null ||
+      (document.id !== null && result.value.id !== document.id)) {
+    return { kind: 'unknown', message: 'The document save returned an invalid acknowledgement; verify its outcome.' };
+  }
+  return ok(Object.freeze({ id: result.value.id, version: result.value.version }));
+}
 
 // Codec outputs are detached application values. Freeze ordinary object graphs so
 // neither an observer nor an adapter can change a published snapshot/request.
@@ -41,7 +57,7 @@ interface Operation<T> {
 /** Framework-independent engine. Creation waits only for local discovery. */
 export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Promise<Result<RecoveryController<T>>> {
   const { remote, codec, storage } = options;
-  const initialDocument = options.document ?? { id: options.scope?.documentId ?? null, version: null };
+  const initialDocument = options.document ?? { id: null, version: null };
   if (!validDocument(initialDocument)) return fail('invalid_document');
   const now = options.now ?? (() => performance.now());
   const operationId = options.createOperationId ?? (() => globalThis.crypto.randomUUID());
@@ -179,6 +195,13 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     return result;
   };
   const expired = (op: Operation<T>) => time() - op.started >= remote!.replayWindowMs * 0.9;
+  const retryGuard = (): Failure | null => {
+    if (!operation || !['unknown', 'retryable'].includes(operation.outcome ?? '')) return fail('no_pending_operation');
+    const currentTime = time();
+    if (!Number.isFinite(currentTime) || currentTime - operation.started >= remote!.replayWindowMs * 0.9) return fail('replay_window_expired');
+    if (currentTime < operation.retryAt) return fail('retry_not_ready');
+    return null;
+  };
   const guard = (kind: 'save' | 'discard' | 'retry', cleanup = false): Failure | null => {
     if (disposed) return fail('disposed');
     if (documentSaving && !cleanup) return fail('document_save_in_progress');
@@ -188,13 +211,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     if (remoteState.kind !== 'ready') return fail('remote_not_ready');
     if (inFlight) return fail('operation_in_progress');
     if (kind !== 'retry' && activeBase === null) return fail('reconciliation_required');
-    if (kind === 'retry') {
-      if (!operation || !['unknown', 'retryable'].includes(operation.outcome ?? '')) return fail('no_pending_operation');
-      const currentTime = time();
-      if (!Number.isFinite(currentTime) || currentTime - operation.started >= remote.replayWindowMs * 0.9) return fail('replay_window_expired');
-      if (currentTime < operation.retryAt) return fail('retry_not_ready');
-    }
-    return null;
+    return kind === 'retry' ? retryGuard() : null;
   };
   const dispatch = async (op: Operation<T>): Promise<MutationResult<T>> => {
     let finish!: () => void;
@@ -247,7 +264,10 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
         case 'permanent': operation = null; status = 'error'; remoteError = result; break;
       }
       inFlight = false; publish(); return result;
-    } finally { if (remoteDrain === draining) remoteDrain = null; finish(); }
+    } finally {
+      if (remoteDrain === draining) remoteDrain = null;
+      finish();
+    }
   };
   const mutate = (kind: 'save' | 'discard', cleanup = false): Promise<MutationResult<T>> => {
     const blocked = guard(kind, cleanup); if (blocked) return Promise.resolve(blocked);
@@ -319,18 +339,9 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
         const persisted = await persistLocal();
         if (persisted.kind !== 'ok') return persisted;
         if (disposed) return fail('disposed');
-        let result;
-        try { result = await submit(Object.freeze({ value: data.value, document: reference })); }
-        catch { return { kind: 'unknown', message: 'The document save may have committed; verify its outcome before resubmitting.' }; }
+        const result = await submitDocument(submit, data.value, reference);
         if (disposed) return fail('disposed');
-        if (!result || !['ok', 'permanent', 'retryable', 'unknown'].includes(result.kind)) {
-          return { kind: 'unknown', message: 'The document save returned an invalid acknowledgement; verify its outcome.' };
-        }
         if (result.kind !== 'ok') return result;
-        if (!validDocument(result.value) || result.value.id === null || result.value.version === null ||
-            (reference.id !== null && result.value.id !== reference.id)) {
-          return { kind: 'unknown', message: 'The document save returned an invalid acknowledgement; verify its outcome.' };
-        }
         documentReference = Object.freeze({ id: result.value.id, version: result.value.version });
         documentAcknowledged = submittedGeneration;
         // Never remove a candidate or a copy we did not write. CAS protects
@@ -383,7 +394,14 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       operation = null; activeBase = checked.value.revision; baseEpoch++;
       remoteState = Object.freeze({ kind: 'ready', snapshot: checked.value });
       remoteError = null; actionError = null; status = 'idle';
-      controller.update(value); return ok(undefined);
+      if (Object.is(value, state.value)) {
+        // Changing recovery ancestry alone does not edit the authoritative value.
+        // Keep dirty input dirty, but preserve an existing document acknowledgement.
+        if (documentAcknowledged === generation) documentAcknowledged++;
+        generation++;
+        publish(); void persistLocal();
+      } else controller.update(value);
+      return ok(undefined);
     },
     dispose() {
       if (disposed) return;

@@ -17,7 +17,7 @@ export type { RecoveryEngineOptions };
 function session<T>(options: RecoveryEngineOptions<T>) {
   const initial: DraftRecovery<T> = { ready: false, actions: null, state: {
     value: options.initialValue, dirty: false, candidate: { kind: 'none' },
-    document: { reference: options.document ?? { id: options.scope.documentId, version: null }, dirty: false, saving: false },
+    document: { reference: options.document ?? { id: null, version: null }, dirty: false, saving: false },
     remote: options.remote ? { kind: 'loading' } : { kind: 'disabled' }, status: 'loading', error: null,
   } };
   let snapshot: DraftRecovery<T> = initial;
