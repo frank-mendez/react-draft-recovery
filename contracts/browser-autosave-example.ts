@@ -54,7 +54,12 @@ export function connectBrowserAutosave(controller: RecoveryController<Article>, 
     scheduler,
     /** Call from your router's supported blocker/link/action integration. */
     async confirmNavigation(confirm: () => Promise<boolean>) {
-      if (needsConfirmation() && !await confirm()) return false;
+      if (!needsConfirmation()) return true;
+      if (!await confirm()) return false;
+      const state = controller.getSnapshot();
+      // An untouched candidate is already stored; do not force a recovery choice.
+      // Re-read after confirmation so input typed during the dialog is preserved.
+      if (!state.dirty && !state.document.dirty) return true;
       // This example refuses navigation if local preservation failed. An app may
       // offer a second, explicit leave-without-saving choice instead.
       return (await scheduler.flushLocal()).kind === 'ok';

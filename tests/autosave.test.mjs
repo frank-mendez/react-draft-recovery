@@ -211,3 +211,63 @@ for (const outcome of ['unknown', 'ok']) test(`browser reconnect during external
   const warning = new dom.window.Event('beforeunload', { cancelable: true });
   dom.window.dispatchEvent(warning); assert.equal(warning.defaultPrevented, false);
 });
+
+for (const candidate of [false, true]) test(`navigation allows unchanged input with ${candidate ? 'pending candidate' : 'unavailable storage'}`, async t => {
+  const { JSDOM } = await import('jsdom');
+  const { connectBrowserAutosave, createBrowserAutosaveSession } = await import('../contracts/browser-autosave-example.ts');
+  const dom = new JSDOM(''); t.after(() => dom.window.close());
+  let writes = 0;
+  const storage = {
+    async read() { return ok(candidate ? { formatVersion: 1, scope: { userId: 'u', documentId: 'd', editorId: 'e' },
+      baseRevision: 'r0', dataVersion: 1, payload: JSON.stringify({ title: 'Prior draft' }), savedAt: new Date().toISOString() } : null); },
+    async write() { writes++; return { kind: 'permanent', code: 'quota_exceeded', message: 'Full' }; },
+    async remove() { assert.fail('must preserve candidate'); },
+  };
+  const f = await fixture(t, { storage });
+  const connection = connectBrowserAutosave(f.c, dom.window, createBrowserAutosaveSession()); t.after(() => connection.disconnect());
+  let confirmations = 0;
+  if (candidate) assert.equal(await connection.confirmNavigation(async () => false), false);
+  assert.equal(await connection.confirmNavigation(async () => { confirmations++; return true; }), true);
+  assert.equal(confirmations, candidate ? 1 : 0); assert.equal(writes, 0);
+  // A candidate does not prove newly typed input is durable.
+  f.c.update({ title: 'New unsaved input' }); await settle();
+  assert.equal(await connection.confirmNavigation(async () => true), false);
+});
+
+for (const kind of ['absent', 'present']) test(`input before ${kind} remote discovery exposes reconciliation and resumes after resolution`, async t => {
+  let finishLoad;
+  const calls = [];
+  const remote = {
+    replayWindowMs: 10000,
+    load: () => new Promise(resolve => { finishLoad = resolve; }),
+    async save(request) { calls.push(request); return ok({ kind: 'present', revision: 'r2', value: request.value }); },
+    async discard() { assert.fail('no discard'); },
+  };
+  const f = await fixture(t, { remote });
+  const results = [];
+  const scheduler = core.createAutosaveScheduler(f.c, { debounceMs: 100, onResult: (_action, result) => results.push(result) });
+  t.after(() => scheduler.dispose());
+  f.c.update({ title: 'Early input' });
+  const snapshot = kind === 'absent' ? { kind, revision: 'r1' } : { kind, revision: 'r1', value: { title: 'Other input' } };
+  finishLoad(ok(snapshot)); await settle();
+  assert.equal(f.c.getSnapshot().status, 'error');
+  assert.equal(f.c.getSnapshot().error.code, 'reconciliation_required');
+  f.c.update({ title: 'More input' }); await f.tick(1000);
+  assert.equal(calls.length, 0); assert.equal(results.length, 0);
+  assert.equal(f.c.reconcile(snapshot, f.c.getSnapshot().value).kind, 'ok');
+  await f.tick(100);
+  assert.equal(calls.length, 1); assert.equal(calls[0].value.title, 'More input');
+  assert.equal(calls[0].expectedRevision, 'r1');
+});
+
+test('remote validation rejection survives unrelated local notifications; explicit save revalidates', async t => {
+  const f = await fixture(t); let validations = 0;
+  const s = core.createAutosaveScheduler(f.c, { debounceMs: 100, validateRemote: value => {
+    validations++;
+    return value.title === 'large' ? { kind: 'permanent', code: 'payload_too_large', message: 'Large' } : null;
+  } }); t.after(() => s.dispose());
+  f.c.update({ title: 'large' }); await f.tick(100); assert.equal(validations, 1);
+  await s.flushLocal(); await f.tick(1000); assert.equal(validations, 1);
+  assert.equal((await s.save()).code, 'payload_too_large'); assert.equal(validations, 2);
+  f.c.update({ title: 'small' }); await f.tick(100); assert.equal(validations, 3); assert.equal(f.calls.length, 1);
+});

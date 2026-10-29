@@ -62,6 +62,10 @@ storage becomes available. The scheduler does not continuously retry storage.
 - Remote discovery failures require an explicit `controller.reloadRemote()` after
   connectivity returns. A load is not a substitute for resolving an outstanding
   mutation. Conflicts and unknown ancestry require explicit reconciliation.
+  Typing before initial remote discovery completes keeps ancestry unknown: after
+  load, controller state exposes `error.code: 'reconciliation_required'`. Show a
+  resolution UI and call `reconcile(snapshot, chosenValue)` before autosave resumes;
+  the engine does not silently adopt a revision for pre-discovery edits.
 - `dispose()` unsubscribes and clears timers. It does not flush, dispose the
   controller, or cancel a request already sent. Reattach to the same controller to
   schedule remaining dirty input. A newly created controller discovers local
@@ -105,6 +109,8 @@ Count the adapter's actual wire payload, including any envelope, rather than JS
 string length. The adapter/backend must independently enforce its limit (including
 calls made directly through the engine). Local storage still has its own quotas.
 Report `payload_too_large` through `onResult`; later smaller input can autosave.
+Unrelated local notifications do not repeat validation of rejected input. An
+explicit `autosave.save()` revalidates it, for example after a limit changes.
 
 ## Browser and router composition
 
@@ -126,8 +132,10 @@ The example demonstrates:
   attention. Browsers may require prior user interaction or suppress the warning.
   No remote save is attempted during unload and no delivery guarantee is made.
 - `confirmNavigation(confirm)` is called from an application-owned router blocker,
-  navigation action, or link handler. It asks for confirmation and awaits local
-  preservation before allowing navigation; it refuses on storage failure. Wire it
+  navigation action, or link handler. Clean input can leave without a storage
+  write. An untouched recovery candidate can remain on disk after confirmation,
+  without forcing restore/discard. Dirty input still requires local preservation;
+  it refuses on storage failure, including new input alongside a candidate. Wire it
   to every relevant router entry point. It cannot universally intercept routes.
 - `saveDocument(submit)` pauses autosave and retains a session gate for unknown
   authoritative outcomes. `documentResolutionComplete()` is only called after

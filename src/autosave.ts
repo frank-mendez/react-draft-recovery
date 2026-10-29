@@ -37,6 +37,7 @@ export function createAutosaveScheduler<T>(controller: RecoveryController<T>, op
   let lastValue = controller.getSnapshot().value;
   // Prevent rejected input/guard failures from causing an automatic hot loop.
   let blocked = false;
+  let validationBlocked = false;
   const clearRemote = () => { clearTimeout(remoteTimer); remoteTimer = undefined; };
   const clearLocal = () => { clearTimeout(localTimer); localTimer = undefined; };
   const report = (action: 'save' | 'retry' | 'local', result: MutationResult<T> | Result<void>) => {
@@ -49,8 +50,8 @@ export function createAutosaveScheduler<T>(controller: RecoveryController<T>, op
       state.candidate.kind === 'none' && state.remote.kind === 'ready' && state.status === 'idle';
   };
   const schedule = () => {
-    if (!available() || blocked || !controller.getSnapshot().dirty) { clearRemote(); return; }
-    if (remoteTimer === undefined) remoteTimer = setTimeout(() => { remoteTimer = undefined; void save(); }, debounce);
+    if (!available() || blocked || validationBlocked || !controller.getSnapshot().dirty) { clearRemote(); return; }
+    remoteTimer ??= setTimeout(() => { remoteTimer = undefined; void save(); }, debounce);
   };
   const flushLocal = async (): Promise<Result<void>> => {
     clearLocal();
@@ -74,7 +75,8 @@ export function createAutosaveScheduler<T>(controller: RecoveryController<T>, op
       let invalid: Failure | null;
       try { invalid = options.validateRemote?.(state.value) ?? null; }
       catch { invalid = fail('remote_validation_failed'); }
-      if (invalid) { blocked = true; report(action, invalid); return invalid; }
+      validationBlocked = invalid !== null;
+      if (invalid) { report(action, invalid); return invalid; }
     }
     running = true;
     try {
@@ -88,7 +90,7 @@ export function createAutosaveScheduler<T>(controller: RecoveryController<T>, op
   const unsubscribe = controller.subscribe(() => {
     const value = controller.getSnapshot().value;
     if (!Object.is(lastValue, value)) {
-      lastValue = value; blocked = false; clearRemote(); queueLocal();
+      lastValue = value; blocked = false; validationBlocked = false; clearRemote(); queueLocal();
     }
     // A successful explicit engine retry/reconciliation may unblock scheduling.
     if (controller.getSnapshot().status === 'idle' && !running) blocked = false;

@@ -129,7 +129,11 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
   const publish = () => {
     if (disposed) return;
     const l = local.getSnapshot();
-    const error = l.error ?? actionError ?? remoteError;
+    // Unknown ancestry is a visible resolution state, including edits made
+    // before remote discovery. Do not advertise an idle, autosave-ready editor.
+    const ancestryError = activeBase === null && remoteState.kind === 'ready' && !operation
+      ? fail('reconciliation_required') : null;
+    const error = l.error ?? actionError ?? remoteError ?? ancestryError;
     state = Object.freeze({ value: l.value, dirty: remote ? generation !== acknowledged : l.dirty,
       document: Object.freeze({ reference: documentReference, dirty: generation !== documentAcknowledged, saving: documentSaving }),
       candidate: freeze(l.candidate), remote: remoteState,
