@@ -203,6 +203,8 @@ export interface LocalRecovery<T> {
   subscribe(listener: () => void): () => void;
   update(value: T): void;
   restore(): Result<void>;
+  /** Suppress an equivalent initial candidate with matching remote revision; never removes storage. */
+  acknowledgeCandidate(value: T, revision: string): void;
   persist(baseRevision?: string | null): Promise<Result<void>>;
   /** Revalidate after disconnection without offering this session's own saved draft. */
   refresh(preserveActive?: boolean): Promise<Result<void>>;
@@ -344,6 +346,23 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       return ok(undefined);
     },
     refresh,
+    acknowledgeCandidate(value, revision) {
+      if (disposed || loggedOut || discovering || pending || state.externalChange || state.error ||
+          state.dirty || state.candidate.kind !== 'available' || !revision || candidateRevision !== revision) return;
+      const observed = state;
+      try {
+        const candidate = codec.encode(state.candidate.value);
+        const initial = codec.encode(options.initialValue);
+        const remote = codec.encode(value);
+        if (candidate.kind !== 'ok' || initial.kind !== 'ok' || remote.kind !== 'ok' ||
+            typeof candidate.value !== 'string' || candidate.value !== initial.value || candidate.value !== remote.value) return;
+      } catch { return; }
+      // Codec callbacks can synchronously trigger edits or competing-writer notifications.
+      if (disposed || loggedOut || state !== observed) return;
+      blocked = false;
+      baseRevision = revision;
+      publish({ baseRevision, candidate: Object.freeze({ kind: 'none' }) });
+    },
     persist: (revision = baseRevision) => mutate(async () => {
       if (disposed || loggedOut) return inactiveError();
       if (blocked && !discovering) return recoveryPending();

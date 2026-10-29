@@ -175,3 +175,17 @@ The built-in adapter exposes an optional `discovery` capability for listing draf
 across editor IDs or documents within one account. See [recovery discovery](recovery-discovery.md)
 for explicit restore/discard, safe versioned import, and cross-tab atomicity limits.
 Existing adapters and exact-scope controllers retain their current behavior.
+
+## Acknowledging equivalent candidates
+
+`acknowledgeCandidate(value, revision)` suppresses a candidate without deleting or
+writing its stored record. Supply a verified present remote value and its nonempty
+revision. The candidate's base revision must match, and the current codec must
+encode the candidate, original `initialValue`, and supplied value identically.
+The method does nothing during an operation, after edits that remain dirty, or
+when discovery has errors or a competing-writer notification. It returns no value;
+inspect `candidate.kind` afterward. A suppressed candidate allows future writes
+and retains the matching base revision. Explicit refresh rediscovers stored data;
+acknowledge again with current evidence if appropriate. The composed recovery
+engine performs this check automatically for unedited sessions after successful
+remote discovery and `refreshLocal()`. See [clean-copy policy](recovery-engine.md#save-acknowledgements-and-initial-discovery).

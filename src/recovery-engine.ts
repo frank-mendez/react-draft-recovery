@@ -109,6 +109,11 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
   });
   if (localResult.kind !== 'ok') return localResult;
   const local = localResult.value;
+  const acknowledgeCleanCandidate = () => {
+    if (generation === 0 && remoteState.kind === 'ready' && remoteState.snapshot.kind === 'present') {
+      local.acknowledgeCandidate(remoteState.snapshot.value, remoteState.snapshot.revision);
+    }
+  };
   let disposed = false;
   let generation = 0, acknowledged = 0;
   let documentAcknowledged = 0;
@@ -198,6 +203,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     if (result.kind === 'ok' && activeBase === undefined) activeBase = result.value.revision;
     remoteError = result.kind === 'ok' ? null : result;
     remoteState = Object.freeze(result.kind === 'ok' ? { kind: 'ready', snapshot: result.value } : { kind: 'failed', error: result });
+    acknowledgeCleanCandidate();
     status = result.kind === 'ok' ? 'idle' : 'error'; publish();
     return result;
   };
@@ -370,7 +376,9 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       // Finish this session's queued writes/removal before comparing stored data.
       while (localTask || localRemoval) await (localTask ?? localRemoval);
       if (disposed) return fail('disposed');
-      return local.refresh(true);
+      const result = await local.refresh(true);
+      acknowledgeCleanCandidate();
+      return result;
     },
     discardLocal() {
       if (disposed) return Promise.resolve(fail('disposed'));
