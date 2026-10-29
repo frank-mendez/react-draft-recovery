@@ -638,3 +638,60 @@ test('codec comparison failures retain the candidate without failing remote disc
   assert.equal(c.getSnapshot().candidate.kind, 'available');
   c.dispose();
 });
+
+for (const policy of ['manual', 'failed immediate']) {
+  test(`acknowledged copies stay suppressed after unpersisted edits and refresh: ${policy}`, async () => {
+    const f = fixture({ initialValue: { title: 'A' }, localWritePolicy: policy === 'manual' ? 'manual' : 'immediate' });
+    await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+      payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+    f.remote.load = async () => ok(present('r1', 'A'));
+    const c = await ready(f);
+    assert.equal(c.getSnapshot().candidate.kind, 'none');
+    const write = f.storage.write;
+    if (policy === 'failed immediate') f.storage.write = async () => ({ kind: 'retryable', code: 'storage_quota', message: 'Full' });
+    c.update({ title: 'B' });
+    await c.refreshLocal();
+    assert.equal(c.getSnapshot().candidate.kind, 'none');
+    assert.equal(c.getSnapshot().value.title, 'B');
+    if (policy === 'failed immediate') assert.equal(c.getSnapshot().error.code, 'storage_quota');
+    f.storage.write = write;
+    assert.equal((await c.persistLocal()).kind, 'ok');
+    assert.equal(JSON.parse(f.record().payload).title, 'B');
+    c.dispose();
+  });
+}
+
+test('clean-copy suppression publishes ready remote state with settled status', async () => {
+  const f = fixture({ initialValue: { title: 'A' } });
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+    payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+  const gate = deferred(); f.remote.load = () => gate.promise;
+  const c = await f.open();
+  const seen = [];
+  c.subscribe(() => seen.push(c.getSnapshot()));
+  gate.resolve(ok(present('r1', 'A')));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(seen.some(s => s.remote.kind === 'ready' && s.candidate.kind === 'none'));
+  assert.ok(seen.every(s => s.remote.kind !== 'ready' || s.status === 'idle'));
+  c.dispose();
+});
+
+for (const replacement of [null, { title: 'Other' }]) {
+  test(`refresh protects a changed acknowledged record: ${replacement ? 'replacement' : 'removal'}`, async () => {
+    const f = fixture({ initialValue: { title: 'A' }, localWritePolicy: 'manual' });
+    await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+      payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+    f.remote.load = async () => ok(present('r1', 'A'));
+    const c = await ready(f);
+    c.update({ title: 'B' });
+    if (replacement) await f.storage.write(scope, { ...f.record(), payload: JSON.stringify(replacement) });
+    else await f.storage.remove(scope);
+    const retained = structuredClone(f.record());
+    await c.refreshLocal();
+    assert.equal(c.getSnapshot().value.title, 'B');
+    assert.equal(c.getSnapshot().candidate.kind, replacement ? 'available' : 'none');
+    assert.equal((await c.persistLocal()).code, 'recovery_pending');
+    assert.deepEqual(f.record(), retained);
+    c.dispose();
+  });
+}

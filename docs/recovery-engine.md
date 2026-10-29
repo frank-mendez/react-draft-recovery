@@ -70,8 +70,9 @@ subsequent edits coalesce into a write of the newest value. `persistLocal()` ret
 local storage and resolves after that queue drains. It neither saves remotely nor
 clears remote dirty state. Local errors remain in `state.error` until corrected.
 `refreshLocal()` drains pending local writes/removal, then revalidates stored data
-without replacing active input. A record last written by this controller is not
-offered as a recovery candidate; competing records or removal still block writes.
+without replacing active input. An unchanged record last written or acknowledged
+as an equivalent clean copy by this controller is not offered as a recovery candidate,
+even after newer edits or failed local writes; competing records or removal still block writes.
 This supports reconnecting notifications after a lifecycle gap. Applications must
 await revalidation before issuing new local actions.
 

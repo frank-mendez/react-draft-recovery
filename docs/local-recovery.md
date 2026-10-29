@@ -185,7 +185,9 @@ encode the candidate, original `initialValue`, and supplied value identically.
 The method does nothing during an operation, after edits that remain dirty, or
 when discovery has errors or a competing-writer notification. It returns no value;
 inspect `candidate.kind` afterward. A suppressed candidate allows future writes
-and retains the matching base revision. Explicit refresh rediscovers stored data;
-acknowledge again with current evidence if appropriate. The composed recovery
+and retains the matching base revision. `refresh(true)` recognizes the exact
+acknowledged record as already handled, including after edits or failed writes;
+a changed or removed record still blocks persistence. Plain `refresh()` rediscovers
+stored data; acknowledge again with current evidence if appropriate. The composed recovery
 engine performs this check automatically for unedited sessions after successful
 remote discovery and `refreshLocal()`. See [clean-copy policy](recovery-engine.md#save-acknowledgements-and-initial-discovery).

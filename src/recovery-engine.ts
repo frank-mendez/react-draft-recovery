@@ -203,8 +203,9 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
     if (result.kind === 'ok' && activeBase === undefined) activeBase = result.value.revision;
     remoteError = result.kind === 'ok' ? null : result;
     remoteState = Object.freeze(result.kind === 'ok' ? { kind: 'ready', snapshot: result.value } : { kind: 'failed', error: result });
+    status = result.kind === 'ok' ? 'idle' : 'error';
     acknowledgeCleanCandidate();
-    status = result.kind === 'ok' ? 'idle' : 'error'; publish();
+    publish();
     return result;
   };
   const expired = (op: Operation<T>) => time() - op.started >= remote!.replayWindowMs * 0.9;

@@ -245,6 +245,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
   let pending: Promise<Result<void>> | null = null;
   let baseRevision = options.baseRevision ?? null;
   let candidateRevision: string | null = null;
+  let candidateRecord: LocalRecord | null = null;
   let unsubscribe = () => {};
   let ownRecord: LocalRecord | null = null;
   let notificationError: Failure | null = null;
@@ -281,6 +282,7 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
     }
     let error: Failure | null = result.kind === 'ok' ? null : result;
     let candidate: LocalRecoveryState<T>['candidate'] = { kind: 'none' };
+    candidateRecord = null;
     blocked = result.kind !== 'ok' || result.value !== null || state.externalChange;
     if (result.kind === 'ok' && result.value !== null) {
       const checked = validateRecord(result.value, scope);
@@ -294,7 +296,11 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
         else {
           try {
             const decoded = codec.decode(record.payload, record.dataVersion);
-            if (decoded.kind === 'ok') { candidate = { kind: 'available', value: decoded.value }; candidateRevision = record.baseRevision; }
+            if (decoded.kind === 'ok') {
+              candidate = { kind: 'available', value: decoded.value };
+              candidateRevision = record.baseRevision;
+              candidateRecord = { ...record };
+            }
             else error = decoded;
           } catch { error = failure('invalid_data', 'The stored draft could not be decoded.'); }
         }
@@ -359,6 +365,9 @@ export async function createLocalRecovery<T>(options: LocalRecoveryOptions<T>): 
       } catch { return; }
       // Codec callbacks can synchronously trigger edits or competing-writer notifications.
       if (disposed || loggedOut || state !== observed) return;
+      // Treat this exact retained record as handled on reconnect, even when
+      // newer edits have not yet been persisted. A changed record still blocks.
+      ownRecord = candidateRecord;
       blocked = false;
       baseRevision = revision;
       publish({ baseRevision, candidate: Object.freeze({ kind: 'none' }) });
