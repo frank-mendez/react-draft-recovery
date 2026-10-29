@@ -159,3 +159,9 @@ Edits made before initial remote discovery succeeds have unknown ancestry, just
 like their persisted recovery record. Loading a remote snapshot does not silently
 rebase those edits: call `reconcile(snapshot, chosenValue)` before saving. This
 also applies to edits made while the initial remote load has failed.
+
+## External document saves
+
+`saveDocument(submit)` coordinates an application-owned document save or publication
+with recovery mutations. See [external saves](external-saves.md) for pause/drain
+semantics, snapshot acknowledgements, creation identity and guarded cleanup.

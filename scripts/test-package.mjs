@@ -39,6 +39,16 @@ assert.match(storageKey(options.scope), /^react-draft-recovery:/);
 const result = await createRecovery(options);
 assert.equal(result.kind, 'ok');
 assert.equal(result.value.getSnapshot().value, 'draft');
+result.value.update('A');
+const published = await result.value.saveDocument(async request => {
+  assert.equal(request.value, 'A');
+  result.value.update('B');
+  return { kind: 'ok', value: { id: 'd', version: 'document-v1' } };
+});
+assert.equal(published.kind, 'ok');
+assert.equal(result.value.getSnapshot().document.reference.version, 'document-v1');
+assert.equal(result.value.getSnapshot().document.dirty, true);
+assert.equal(result.value.getSnapshot().value, 'B');
 result.value.dispose();
 const data = new Map();
 const localStorage = createLocalStorageAdapter({ getStorage: () => ({

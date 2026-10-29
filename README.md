@@ -134,3 +134,10 @@ instances or build an account-scoped unfinished-document list. Candidates have
 stable IDs and explicit restore/discard actions; discovery preserves active input.
 Consumer adapters can expose legacy records for import to independent writer keys.
 See the [discovery and migration guide](docs/recovery-discovery.md).
+
+### Authoritative document saves and publication
+
+Use `saveDocument(submit)` to pause and drain recovery autosave around an external
+save. It acknowledges the submitted snapshot, preserves later edits, and tracks
+the document ID/version separately from working-copy revisions. Validation and
+editorial approval remain application-owned. See the [external-save guide](docs/external-saves.md).

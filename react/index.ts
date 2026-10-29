@@ -17,6 +17,7 @@ export type { RecoveryEngineOptions };
 function session<T>(options: RecoveryEngineOptions<T>) {
   const initial: DraftRecovery<T> = { ready: false, actions: null, state: {
     value: options.initialValue, dirty: false, candidate: { kind: 'none' },
+    document: { reference: options.document ?? { id: options.scope.documentId, version: null }, dirty: false, saving: false },
     remote: options.remote ? { kind: 'loading' } : { kind: 'disabled' }, status: 'loading', error: null,
   } };
   let snapshot: DraftRecovery<T> = initial;
@@ -95,6 +96,7 @@ function session<T>(options: RecoveryEngineOptions<T>) {
             restore() { if (usable) controller!.restore(); },
             reconcile: (revision, value) => usable ? controller!.reconcile(revision, value) : inactive(),
             save: () => usable ? controller!.save() : Promise.resolve(inactive()),
+            saveDocument: submit => usable ? controller!.saveDocument(submit) : Promise.resolve(inactive()),
             retry: () => usable ? controller!.retry() : Promise.resolve(inactive()),
             persistLocal: () => usable ? controller!.persistLocal() : Promise.resolve(inactive()),
             discardLocal: () => usable ? controller!.discardLocal() : Promise.resolve(inactive()),
