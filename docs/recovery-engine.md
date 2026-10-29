@@ -63,7 +63,9 @@ intact and dirty. Without remote persistence, dirty tracks local durability.
 
 ## Local writes and recovery choices
 
-Updates/restoration start local persistence immediately. While one write is pending,
+By default, updates/restoration start local persistence immediately.
+`localWritePolicy: 'manual'` disables automatic edit-time writes only; use
+`persistLocal()` or the [opt-in autosave scheduler](autosave.md) to schedule them. While one write is pending,
 subsequent edits coalesce into a write of the newest value. `persistLocal()` retries
 local storage and resolves after that queue drains. It neither saves remotely nor
 clears remote dirty state. Local errors remain in `state.error` until corrected.

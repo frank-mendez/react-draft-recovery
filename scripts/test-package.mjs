@@ -29,7 +29,7 @@ try {
   assert.match(builtHook, /^['"]use client['"]/);
   assert.match(builtHook, /from ['"]react['"]/);
   const core = `import assert from 'node:assert/strict';
-import { createRecovery, createLocalRecovery, createLocalStorageAdapter, createRecoveryDiscovery, storageKey } from '${pkg.name}/core';
+import { createRecovery, createLocalRecovery, createLocalStorageAdapter, createRecoveryDiscovery, createAutosaveScheduler, storageKey } from '${pkg.name}/core';
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
 const options = { scope: { userId: 'u', documentId: 'd', editorId: 'e' }, initialValue: 'draft',
@@ -39,6 +39,9 @@ assert.match(storageKey(options.scope), /^react-draft-recovery:/);
 const result = await createRecovery(options);
 assert.equal(result.kind, 'ok');
 assert.equal(result.value.getSnapshot().value, 'draft');
+const scheduler = createAutosaveScheduler(result.value, { debounceMs: 10 });
+assert.equal((await scheduler.flushLocal()).kind, 'ok');
+scheduler.dispose();
 result.value.update('A');
 const published = await result.value.saveDocument(async request => {
   assert.equal(request.value, 'A');

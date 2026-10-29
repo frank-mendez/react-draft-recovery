@@ -127,3 +127,7 @@ when it becomes false; `state.document.dirty` tracks edits not acknowledged by t
 document service. The initial `document` option belongs to the session and updates
 through successful submission, independently of recovery revisions. Keep the
 recovery scope stable through creation. See [external saves](external-saves.md).
+
+For an application-owned core controller, the [opt-in scheduler and browser guide](autosave.md)
+provides debounce and lifecycle composition. The hook itself continues to expose
+explicit save/retry actions; its internal controller is not exposed to that factory.

@@ -141,3 +141,11 @@ Use `saveDocument(submit)` to pause and drain recovery autosave around an extern
 save. It acknowledges the submitted snapshot, preserves later edits, and tracks
 the document ID/version separately from working-copy revisions. Validation and
 editorial approval remain application-owned. See the [external-save guide](docs/external-saves.md).
+
+### Opt-in autosave scheduling
+
+Use `createAutosaveScheduler` from `react-draft-recovery/core` for configurable
+remote debounce and optional local debounce. The engine defaults to immediate
+local preservation; remote scheduling is opt-in and retries stay explicit.
+See the [autosave and browser lifecycle guide](docs/autosave.md) for frozen retries,
+UTF-8 payload limits, pagehide flushing, unload warnings, and route confirmation.
