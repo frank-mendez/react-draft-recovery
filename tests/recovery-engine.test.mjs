@@ -517,3 +517,181 @@ test('save acknowledgement drains older local writes and retains edits made duri
   assert.equal(JSON.parse(f.record().payload).title, 'B');
   assert.equal(f.record().baseRevision, 'r1'); c.dispose();
 });
+
+test('reopening an acknowledged equivalent copy suppresses recovery without deleting it', async () => {
+  const f = fixture();
+  const first = await ready(f);
+  first.update({ title: 'A' });
+  await first.save();
+  first.dispose();
+  const retained = structuredClone(f.record());
+  f.options.initialValue = { title: 'A' };
+  f.remote.load = async () => ok(present('r1', 'A'));
+  const reopened = await ready(f);
+  assert.equal(reopened.getSnapshot().candidate.kind, 'none');
+  assert.deepEqual(f.record(), retained);
+  await reopened.refreshLocal();
+  assert.equal(reopened.getSnapshot().candidate.kind, 'none');
+  reopened.update({ title: 'B' });
+  assert.equal((await reopened.persistLocal()).kind, 'ok');
+  assert.equal(JSON.parse(f.record().payload).title, 'B');
+  reopened.dispose();
+});
+
+for (const [name, initial, remoteSnapshot, localTitle, base] of [
+  ['changed authoritative value', 'B', present('r1', 'A'), 'A', 'r1'],
+  ['changed remote revision', 'A', present('r2', 'A'), 'A', 'r1'],
+  ['different remote value', 'A', present('r1', 'B'), 'A', 'r1'],
+  ['absent remote', 'A', absent('r1'), 'A', 'r1'],
+  ['unknown ancestry', 'A', present('r1', 'A'), 'A', null],
+  ['newer pending edits', 'A', present('r1', 'A'), 'B', 'r1'],
+]) {
+  test(`reopening retains recovery for ${name}`, async () => {
+    const f = fixture({ initialValue: { title: initial } });
+    await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: base, dataVersion: 1,
+      payload: JSON.stringify({ title: localTitle }), savedAt: '2026-10-27T00:00:00Z' });
+    const retained = structuredClone(f.record());
+    f.remote.load = async () => ok(remoteSnapshot);
+    const c = await ready(f);
+    assert.equal(c.getSnapshot().candidate.kind, 'available');
+    assert.deepEqual(f.record(), retained);
+    c.dispose();
+  });
+}
+
+test('failed local persistence after remote acknowledgement remains visible and conservative on reopen', async () => {
+  const f = fixture();
+  const c = await ready(f);
+  c.update({ title: 'A' });
+  await c.persistLocal();
+  const retained = structuredClone(f.record());
+  const write = f.storage.write;
+  f.storage.write = async () => ({ kind: 'retryable', code: 'storage_quota', message: 'Full' });
+  assert.equal((await c.save()).kind, 'ok');
+  assert.equal(c.getSnapshot().dirty, false);
+  assert.equal(c.getSnapshot().error.code, 'storage_quota');
+  assert.deepEqual(f.record(), retained);
+  c.dispose();
+  f.storage.write = write;
+  f.options.initialValue = { title: 'A' };
+  f.remote.load = async () => ok(present('r1', 'A'));
+  const reopened = await ready(f);
+  assert.equal(reopened.getSnapshot().candidate.kind, 'available');
+  reopened.dispose();
+});
+
+test('newer edits made during a remote save remain recoverable after reopening', async () => {
+  const f = fixture(); const gate = deferred();
+  f.remote.save = () => gate.promise;
+  const c = await ready(f);
+  c.update({ title: 'A' });
+  const saving = c.save();
+  c.update({ title: 'B' });
+  gate.resolve(ok(present('r1', 'A')));
+  await saving;
+  c.dispose();
+  f.options.initialValue = { title: 'A' };
+  f.remote.load = async () => ok(present('r1', 'A'));
+  const reopened = await ready(f);
+  assert.equal(reopened.getSnapshot().candidate.value.title, 'B');
+  assert.equal(JSON.parse(f.record().payload).title, 'B');
+  reopened.dispose();
+});
+
+test('equivalent competing-writer records are never acknowledged automatically', async () => {
+  const f = fixture(); let notify;
+  f.storage.subscribe = (_scope, listener) => { notify = listener; return () => {}; };
+  f.options.initialValue = { title: 'A' };
+  f.remote.load = async () => ok(present('r1', 'A'));
+  const c = await ready(f);
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+    payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+  const retained = structuredClone(f.record());
+  notify({ kind: 'changed' });
+  await c.refreshLocal();
+  assert.equal(c.getSnapshot().candidate.kind, 'available');
+  assert.equal((await c.persistLocal()).code, 'recovery_pending');
+  assert.deepEqual(f.record(), retained);
+  c.dispose();
+});
+
+test('codec comparison failures retain the candidate without failing remote discovery', async () => {
+  const f = fixture({ initialValue: { title: 'A' } });
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+    payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+  let comparisons = false;
+  f.options.codec = { ...codec, encode(value) {
+    if (comparisons) throw new Error('Cannot compare');
+    return codec.encode(value);
+  } };
+  const gate = deferred(); f.remote.load = () => gate.promise;
+  const c = await f.open();
+  // Remote detachment needs one successful encoding; fail the candidate encoding afterward.
+  f.options.codec.encode = value => {
+    if (comparisons) throw new Error('Cannot compare');
+    comparisons = true;
+    return codec.encode(value);
+  };
+  gate.resolve(ok(present('r1', 'A')));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(c.getSnapshot().remote.kind, 'ready');
+  assert.equal(c.getSnapshot().candidate.kind, 'available');
+  c.dispose();
+});
+
+for (const policy of ['manual', 'failed immediate']) {
+  test(`acknowledged copies stay suppressed after unpersisted edits and refresh: ${policy}`, async () => {
+    const f = fixture({ initialValue: { title: 'A' }, localWritePolicy: policy === 'manual' ? 'manual' : 'immediate' });
+    await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+      payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+    f.remote.load = async () => ok(present('r1', 'A'));
+    const c = await ready(f);
+    assert.equal(c.getSnapshot().candidate.kind, 'none');
+    const write = f.storage.write;
+    if (policy === 'failed immediate') f.storage.write = async () => ({ kind: 'retryable', code: 'storage_quota', message: 'Full' });
+    c.update({ title: 'B' });
+    await c.refreshLocal();
+    assert.equal(c.getSnapshot().candidate.kind, 'none');
+    assert.equal(c.getSnapshot().value.title, 'B');
+    if (policy === 'failed immediate') assert.equal(c.getSnapshot().error.code, 'storage_quota');
+    f.storage.write = write;
+    assert.equal((await c.persistLocal()).kind, 'ok');
+    assert.equal(JSON.parse(f.record().payload).title, 'B');
+    c.dispose();
+  });
+}
+
+test('clean-copy suppression publishes ready remote state with settled status', async () => {
+  const f = fixture({ initialValue: { title: 'A' } });
+  await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+    payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+  const gate = deferred(); f.remote.load = () => gate.promise;
+  const c = await f.open();
+  const seen = [];
+  c.subscribe(() => seen.push(c.getSnapshot()));
+  gate.resolve(ok(present('r1', 'A')));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(seen.some(s => s.remote.kind === 'ready' && s.candidate.kind === 'none'));
+  assert.ok(seen.every(s => s.remote.kind !== 'ready' || s.status === 'idle'));
+  c.dispose();
+});
+
+for (const replacement of [null, { title: 'Other' }]) {
+  test(`refresh protects a changed acknowledged record: ${replacement ? 'replacement' : 'removal'}`, async () => {
+    const f = fixture({ initialValue: { title: 'A' }, localWritePolicy: 'manual' });
+    await f.storage.write(scope, { formatVersion: 1, scope, baseRevision: 'r1', dataVersion: 1,
+      payload: '{"title":"A"}', savedAt: '2026-10-27T00:00:00Z' });
+    f.remote.load = async () => ok(present('r1', 'A'));
+    const c = await ready(f);
+    c.update({ title: 'B' });
+    if (replacement) await f.storage.write(scope, { ...f.record(), payload: JSON.stringify(replacement) });
+    else await f.storage.remove(scope);
+    const retained = structuredClone(f.record());
+    await c.refreshLocal();
+    assert.equal(c.getSnapshot().value.title, 'B');
+    assert.equal(c.getSnapshot().candidate.kind, replacement ? 'available' : 'none');
+    assert.equal((await c.persistLocal()).code, 'recovery_pending');
+    assert.deepEqual(f.record(), retained);
+    c.dispose();
+  });
+}

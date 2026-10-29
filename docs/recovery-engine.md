@@ -70,8 +70,9 @@ subsequent edits coalesce into a write of the newest value. `persistLocal()` ret
 local storage and resolves after that queue drains. It neither saves remotely nor
 clears remote dirty state. Local errors remain in `state.error` until corrected.
 `refreshLocal()` drains pending local writes/removal, then revalidates stored data
-without replacing active input. A record last written by this controller is not
-offered as a recovery candidate; competing records or removal still block writes.
+without replacing active input. An unchanged record last written or acknowledged
+as an equivalent clean copy by this controller is not offered as a recovery candidate,
+even after newer edits or failed local writes; competing records or removal still block writes.
 This supports reconnecting notifications after a lifecycle gap. Applications must
 await revalidation before issuing new local actions.
 
@@ -80,7 +81,7 @@ A remote conflict or reload cannot re-stamp an older draft with a newer revision
 An older in-flight success cannot advance the base of a newly restored draft.
 
 Existing/corrupt recovery records are protected by the local primitive until an
-explicit restore/discard. Restore failures are visible in `state.error`; restore
+explicit restore/discard, except for verified equivalent clean copies described below. Restore failures are visible in `state.error`; restore
 returns void to match the controller contract. A restore during a remote save
 creates a newer dirty generation. A restore during local discovery/write is guarded.
 `discardLocal()` uses the local mutation guard: if a local write is active it returns
@@ -153,9 +154,40 @@ engine behavior, not production backend transaction correctness or browser suppo
 After a successful remote save, the engine persists the active draft with the
 acknowledged revision. This write is serialized behind pending local writes and
 preserves newer edits. A candidate explicitly restored during the save retains
-its own ancestry. The local recovery copy remains available after reopening, but
-restoring it no longer conflicts against that same acknowledged save. Local write
-failures remain visible and can be retried with `persistLocal()`.
+its own ancestry. Local copies are retained, never automatically deleted after a
+remote save. When reopening an unedited session, successful remote discovery
+suppresses the local candidate (`candidate.kind = 'none'`) only when:
+
+- The remote snapshot is present and its revision exactly matches the local
+  record's non-null `baseRevision`.
+- Encoding the decoded candidate, `initialValue`, and remote value with the
+  current codec succeeds and produces identical strings.
+- Local discovery has no errors or competing-writer notification.
+
+The same check runs after `refreshLocal()`. Suppression allows subsequent local
+writes without requiring a redundant restore/discard; it does not change active
+input, mark it dirty, or write/remove the retained record. Codecs should encode
+equivalent values deterministically. This is exact encoded equality, not object
+identity or a generic deep-equality comparison. Migration uses the decoded value
+and current encoder. Encoding failures or nondeterministic encodings conservatively
+leave the candidate available.
+
+A changed initial value, differing remote value/revision, absent/failed remote
+snapshot, unknown local ancestry, or newer pending local edits keeps recovery
+available. While remote discovery is loading, the candidate remains available;
+applications can defer their prompt until loading completes to avoid a brief prompt
+for a clean copy. Local-only sessions retain the existing explicit recovery policy.
+Notified competing writers always require a recovery choice, even for equal data.
+As with other local writes, adapters without notifications cannot detect all races;
+use a distinct `editorId` per writer. Equality is never permission to delete data.
+
+If the remote save succeeds but the subsequent local write fails, `save()` still
+returns the successful remote acknowledgement and `dirty` reflects that save.
+`state.error` reports the local failure; retry it with `persistLocal()`. The older
+local record is retained and may prompt again on reopening because its revision
+cannot prove equivalence. No automatic local cleanup is attempted, so there is no
+cleanup failure that can invalidate a remote save. External document-save cleanup
+has its own separately reported outcome (see below).
 
 Edits made before initial remote discovery succeeds have unknown ancestry, just
 like their persisted recovery record. Loading a remote snapshot does not silently

@@ -149,3 +149,9 @@ remote debounce and optional local debounce. The engine defaults to immediate
 local preservation; remote scheduling is opt-in and retries stay explicit.
 See the [autosave and browser lifecycle guide](docs/autosave.md) for frozen retries,
 UTF-8 payload limits, pagehide flushing, unload warnings, and route confirmation.
+
+Equivalent local copies remain stored after remote saves. On reopening, the engine
+suppresses redundant recovery candidates only when the initial value, remote value,
+and local value have identical codec encodings and matching revision evidence.
+See the [clean-copy policy](docs/recovery-engine.md#save-acknowledgements-and-initial-discovery)
+for loading behavior, competing writers, and local persistence failures.

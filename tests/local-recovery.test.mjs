@@ -418,3 +418,36 @@ test('discard retires an invalidated refresh and its earlier error before the ne
   assert.equal(s.getSnapshot().candidate.kind, 'none');
   assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).payload, '{"title":"Active"}');
 });
+
+test('acknowledging a migrated equivalent candidate retains bytes and adopts its revision for later writes', async () => {
+  const f = fixture(record({ baseRevision: 'r1', dataVersion: 1, payload: '"Active"' }));
+  const c = await session(f);
+  const retained = f.backing.getItem(storageKey(scope));
+  c.acknowledgeCandidate({ title: 'Active' }, 'r1');
+  assert.equal(c.getSnapshot().candidate.kind, 'none');
+  assert.equal(c.getSnapshot().dirty, false);
+  assert.equal(f.backing.getItem(storageKey(scope)), retained);
+  c.update({ title: 'Next' });
+  assert.equal((await c.persist()).kind, 'ok');
+  assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).baseRevision, 'r1');
+  c.dispose();
+});
+
+test('codec-triggered competing writes prevent candidate acknowledgement', async () => {
+  const f = fixture(record({ baseRevision: 'r1', payload: '{"title":"Active"}' }));
+  let reenter = true;
+  const c = await session(f, { codec: { ...codec, encode(value) {
+    if (reenter) {
+      reenter = false;
+      f.backing.setItem(storageKey(scope), JSON.stringify(record({ baseRevision: 'r1', payload: '{"title":"Newer"}' })));
+      f.event();
+    }
+    return codec.encode(value);
+  } } });
+  c.acknowledgeCandidate({ title: 'Active' }, 'r1');
+  await tick();
+  assert.equal(c.getSnapshot().candidate.value.title, 'Newer');
+  assert.equal((await c.persist()).code, 'recovery_pending');
+  assert.equal(JSON.parse(f.backing.getItem(storageKey(scope))).payload, '{"title":"Newer"}');
+  c.dispose();
+});
