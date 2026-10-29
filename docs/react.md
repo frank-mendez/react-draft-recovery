@@ -131,3 +131,12 @@ recovery scope stable through creation. See [external saves](external-saves.md).
 For an application-owned core controller, the [opt-in scheduler and browser guide](autosave.md)
 provides debounce and lifecycle composition. The hook itself continues to expose
 explicit save/retry actions; its internal controller is not exposed to that factory.
+
+## Local readiness versus remote readiness
+
+A ready hook exposes a controller for local editing and recovery; remote discovery
+may still be loading or failed. Early input retains unknown ancestry even after
+discovery succeeds. Render `state.error?.code === 'reconciliation_required'` as
+an explicit review action, and handle load errors and save results separately.
+See the [early-edit reconciliation guide and runnable example](early-edit-reconciliation.md)
+for fresh snapshot review, cancellation, retry and conflict handling.
