@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0-beta.5](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.4...v0.1.0-beta.5) (2026-10-29)
+
+
+### Features
+
+* coordinate external document saves and publication ([600af0f](https://github.com/frank-mendez/react-draft-recovery/commit/600af0fcc4ebc30387ab81cdf48832c773d459a1))
+* coordinate external document saves and publication ([cfc05a1](https://github.com/frank-mendez/react-draft-recovery/commit/cfc05a1dd92129c81749ba414812883aa53215b8))
+
+
+### Bug Fixes
+
+* address document save review findings ([e33f52f](https://github.com/frank-mendez/react-draft-recovery/commit/e33f52fe4135619c8d7a124ca80327e1d83efd92))
+
 ## [0.1.0-beta.4](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.3...v0.1.0-beta.4) (2026-10-28)
 
 
