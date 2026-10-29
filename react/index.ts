@@ -66,7 +66,7 @@ function session<T>(options: RecoveryEngineOptions<T>) {
     getServerSnapshot: () => initial,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     checkConfiguration(next: RecoveryEngineOptions<T>) {
-      if (!warned && (['storage', 'codec', 'remote', 'now', 'createOperationId'] as const).some(key => next[key] !== options[key])) {
+      if (!warned && (['storage', 'codec', 'remote', 'now', 'createOperationId', 'localWritePolicy'] as const).some(key => next[key] !== options[key])) {
         warned = true;
         console.warn('useDraftRecovery: configuration changes within a scope are ignored. Use stable configuration references, or remount with a new React key to apply changes.');
       }

@@ -106,7 +106,7 @@ Use remote revisions for remote safety. The [local recovery primitive](local-rec
 notifies about competing tab changes without replacing active input; it does not
 provide atomic local compare-and-swap.
 
-`persistLocal` writes/retries the latest local recovery snapshot and awaits queued local writes; it does not acknowledge remote persistence. Updates and restoration schedule local persistence automatically.
+`persistLocal` writes/retries the latest local recovery snapshot and awaits queued local writes; it does not acknowledge remote persistence. Updates and restoration schedule local persistence automatically by default. The engine option `localWritePolicy: 'manual'` delegates edit-time writes to the application; restoration still persists.
 
 `discardLocal` removes the recovery record only, retaining active input and remote
 state. Edits made during removal queue local persistence until removal settles; they are not dropped. A discard requested during an existing local write is guarded with `operation_in_progress`. `discardRemote` deletes only the scoped remote draft using the same revision
@@ -185,7 +185,7 @@ persistence still follows updates. No pending retry returns `no_pending_operatio
 `dispose` stops notifications and future scheduling. Calling actions after disposal
 is invalid (result-returning actions return permanent `disposed`; update/restore/subscribe throw). Late
 completions must not update a new controller. Cancellation cannot undo a remote
-commit. The engine exposes explicit save/retry actions. Application debounce policy and React lifecycle integration remain outside this implementation. See the [engine timing policy](recovery-engine.md) for bounded retry delays and replay margins.
+commit. The engine exposes explicit save/retry actions. The separate [opt-in autosave scheduler](autosave.md) supplies debounce; browser and React lifecycle integration remain application-owned. See the [engine timing policy](recovery-engine.md) for bounded retry delays and replay margins.
 
 ## Contract examples and acceptance scenarios
 

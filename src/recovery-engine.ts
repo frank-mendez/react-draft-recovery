@@ -3,6 +3,8 @@ import { createLocalRecovery } from './local-recovery.ts';
 import type { LocalStorageAdapter } from './local-recovery.js';
 
 export interface RecoveryEngineOptions<T> extends RecoveryOptions<T> {
+  /** Immediate by default. Manual delegates edit-time writes to the application/scheduler. */
+  readonly localWritePolicy?: 'immediate' | 'manual';
   /** Monotonic milliseconds. Defaults to performance.now; never use wall-clock time. */
   readonly now?: () => number;
   /** Must return a globally unique, nonempty ID for every logical mutation. */
@@ -57,6 +59,7 @@ interface Operation<T> {
 /** Framework-independent engine. Creation waits only for local discovery. */
 export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Promise<Result<RecoveryController<T>>> {
   const { remote, codec, storage } = options;
+  if (options.localWritePolicy !== undefined && !['immediate', 'manual'].includes(options.localWritePolicy)) return fail('invalid_options');
   const initialDocument = options.document ?? { id: null, version: null };
   if (!validDocument(initialDocument)) return fail('invalid_document');
   const now = options.now ?? (() => performance.now());
@@ -303,7 +306,7 @@ export async function createRecovery<T>(options: RecoveryEngineOptions<T>): Prom
       if (remote && activeBase === undefined) activeBase = null;
       generation++; changingLocal = true;
       try { local.update(captured); } finally { changingLocal = false; }
-      publish(); void persistLocal();
+      publish(); if (options.localWritePolicy !== 'manual') void persistLocal();
     },
     restore() {
       if (disposed) throw new Error('Recovery controller is disposed');
