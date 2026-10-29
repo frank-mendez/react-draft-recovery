@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-beta.7](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.6...v0.1.0-beta.7) (2026-10-29)
+
+
+### Bug Fixes
+
+* suppress verified clean recovery copies on reopen ([#35](https://github.com/frank-mendez/react-draft-recovery/issues/35)) ([ae018a1](https://github.com/frank-mendez/react-draft-recovery/commit/ae018a1977b73ddf0b26bb7ee5bcea571f9d23e7))
+
 ## [0.1.0-beta.6](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.5...v0.1.0-beta.6) (2026-10-29)
 
 
