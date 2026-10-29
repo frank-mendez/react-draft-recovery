@@ -46,7 +46,7 @@ actions return `remote_unavailable` and local persistence still works.
 | Event | Status / result | Input and recovery |
 | --- | --- | --- |
 | Remote discovery begins | `loading` | Local editing/restoration available |
-| Load succeeds / fails | `idle` / `error` | Input unchanged; failure can be retried via `reloadRemote` |
+| Load succeeds / fails | `idle` (or `error` when early edits require reconciliation) / `error` | Input unchanged; failure can be retried via `reloadRemote` |
 | Save / remote discard dispatches | `saving` / `discarding` | Single mutation in flight |
 | Save succeeds | `idle` (or `error` for retained local failure) | Only the dispatched generation is acknowledged |
 | Remote discard succeeds | `idle` | New tombstone base; input and local record retained |
@@ -192,7 +192,9 @@ has its own separately reported outcome (see below).
 Edits made before initial remote discovery succeeds have unknown ancestry, just
 like their persisted recovery record. Loading a remote snapshot does not silently
 rebase those edits: call `reconcile(snapshot, chosenValue)` before saving. This
-also applies to edits made while the initial remote load has failed.
+also applies to edits made while the initial remote load has failed. See the
+[early-edit reconciliation guide](early-edit-reconciliation.md) for observable UI
+state, a runnable decision flow, cancellation and conflict handling.
 
 ## External document saves
 

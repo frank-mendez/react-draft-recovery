@@ -155,3 +155,5 @@ suppresses redundant recovery candidates only when the initial value, remote val
 and local value have identical codec encodings and matching revision evidence.
 See the [clean-copy policy](docs/recovery-engine.md#save-acknowledgements-and-initial-discovery)
 for loading behavior, competing writers, and local persistence failures.
+
+For typing before remote discovery finishes, see the [early-edit reconciliation guide and runnable example](docs/early-edit-reconciliation.md). Local/hook readiness does not imply remote save readiness.
