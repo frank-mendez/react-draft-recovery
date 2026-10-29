@@ -118,3 +118,12 @@ inline configuration, retries, and conflict reconciliation. On React 19.2 the su
 also checks Activity hide/show with pending/failed writes, unresolved remote
 mutations, and missed competing storage changes. Compile-only consumers check generic action types.
 The existing independent core tests continue to run from `contracts`.
+
+## Document saves and publication
+
+Use `actions.saveDocument(submit)` for authoritative saves. Observe
+`state.document.saving` to pause application autosave timers and resume scheduling
+when it becomes false; `state.document.dirty` tracks edits not acknowledged by the
+document service. The initial `document` option belongs to the session and updates
+through successful submission, independently of recovery revisions. Keep the
+recovery scope stable through creation. See [external saves](external-saves.md).

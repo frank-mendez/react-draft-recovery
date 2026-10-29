@@ -39,6 +39,7 @@ test('SSR imports and rendering do not access browser storage or start discovery
   const f = fixture();
   assert.equal(renderToString(h(Editor, { options: f.options })), '<p>initial:loading</p>');
   assert.equal(f.reads(), 0); assert.equal(latest.actions, null);
+  assert.deepEqual(latest.state.document.reference, { id: null, version: null });
 });
 
 test('hydrates initial markup before discovering local recovery', async () => {
@@ -247,5 +248,30 @@ test('reveal does not drain a queued edit over an unseen competing record', { sk
     assert.equal(f.records.get('a').payload, '"competing"');
     assert.equal(latest.state.candidate.value, 'competing');
     await act(async () => { assert.equal((await latest.actions.persistLocal()).code, 'recovery_pending'); });
+  } finally { await act(async () => root.unmount()); d.close(); }
+});
+
+test('document save actions expose creation acknowledgement without remounting or losing later edits', async () => {
+  const f = fixture();
+  const d = dom(), root = createRoot(d.container);
+  try {
+    await act(async () => root.render(h(Editor, { options: f.options })));
+    await act(async () => latest.actions.update('A'));
+    const actions = latest.actions;
+    await act(async () => {
+      const result = await actions.saveDocument(async request => {
+        assert.equal(request.value, 'A');
+        assert.equal(request.document.id, null);
+        actions.update('B');
+        return ok({ id: 'server-id', version: 'v1' });
+      });
+      assert.equal(result.kind, 'ok');
+    });
+    assert.equal(latest.actions, actions);
+    assert.equal(latest.state.value, 'B');
+    assert.equal(latest.state.document.reference.id, 'server-id');
+    assert.equal(latest.state.document.dirty, true);
+    assert.equal(latest.state.document.saving, false);
+    assert.equal(f.records.get('a').payload, '"B"');
   } finally { await act(async () => root.unmount()); d.close(); }
 });

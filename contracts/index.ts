@@ -51,8 +51,32 @@ export type RemoteState<T> =
   | { readonly kind: 'loading' }
   | { readonly kind: 'ready'; readonly snapshot: Snapshot<T> }
   | { readonly kind: 'failed'; readonly error: Failure };
+/** Authoritative document identity; independent of recovery scope and revisions. */
+export interface DocumentReference {
+  readonly id: string | null;
+  readonly version: string | null;
+}
+export interface SavedDocument {
+  readonly id: string;
+  readonly version: string;
+}
+export type DocumentSubmission<T> = (request: {
+  readonly value: T;
+  readonly document: DocumentReference;
+}) => Promise<Result<SavedDocument> | { readonly kind: 'unknown'; readonly message: string }>;
+export type DocumentSaveResult<T> = Result<{
+  readonly document: SavedDocument;
+  /** Null when no owned, unchanged working copy was eligible for cleanup. */
+  readonly cleanup: MutationResult<T> | null;
+}> | { readonly kind: 'unknown'; readonly message: string };
 export type RecoveryState<T> = {
   readonly value: T;
+  /** Authoritative acknowledgement is separate from recovery autosave dirtiness. */
+  readonly document: {
+    readonly reference: DocumentReference;
+    readonly dirty: boolean;
+    readonly saving: boolean;
+  };
   readonly dirty: boolean;
   readonly candidate: { readonly kind: 'none' } | { readonly kind: 'available'; readonly value: T };
   readonly remote: RemoteState<T>;
@@ -68,6 +92,8 @@ export interface RecoveryController<T> {
   reconcile(current: Snapshot<T>, value: T): Result<void>;
   reloadRemote(): Promise<Result<Snapshot<T>>>;
   save(): Promise<MutationResult<T>>;
+  /** Pause/drain recovery, submit a captured snapshot, then resume in all outcomes. */
+  saveDocument(submit: DocumentSubmission<T>): Promise<DocumentSaveResult<T>>;
   retry(): Promise<MutationResult<T>>;
   /** Persist/retry local recovery without acknowledging a remote save. */
   persistLocal(): Promise<Result<void>>;
@@ -80,6 +106,7 @@ export interface RecoveryController<T> {
 export interface RecoveryOptions<T> {
   readonly scope: Scope;
   readonly initialValue: T;
+  readonly document?: DocumentReference;
   readonly storage: StorageAdapter;
   readonly codec: Codec<T>;
   readonly remote?: RemoteAdapter<T>;
