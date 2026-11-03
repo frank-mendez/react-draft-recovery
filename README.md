@@ -82,8 +82,15 @@ React applications must also install React 18.3.1+ or 19. To build and verify a 
 pnpm install --frozen-lockfile
 pnpm build
 pnpm test:package
+pnpm exec playwright install chromium
+pnpm test:adoption
 npm pack
 ```
+
+The [consumer adoption checklist](docs/adoption-checklist.md) explains the
+repository verification gate and the application-specific checks needed before
+replacing an existing recovery feature. Its browser fixture uses Chromium; it does
+not certify every browser, backend, authentication system, or router.
 
 Install the generated tarball reported by `npm pack` in another project
 with `npm install /path/to/package.tgz` or `pnpm add /path/to/package.tgz`.
@@ -126,7 +133,7 @@ pnpm test
 - [x] Implement versioned local recovery storage.
 - [x] Implement and test the recovery engine, including overlapping saves and retries.
 - [x] Add React hooks and a minimal example application.
-- [ ] Verify account isolation, competing tabs, storage failures, and server rendering.
+- [x] Verify account isolation, competing tabs, storage failures, and server rendering in the [consumer adoption gate](docs/adoption-checklist.md).
 - [x] Validate the packed package in independent npm and pnpm consumer applications.
 - [x] Publish the initial beta with documentation.
 - [ ] Configure and verify trusted publishing for repeatable automated releases.
@@ -140,7 +147,7 @@ Development setup, contribution guidelines, and compatibility details will be ad
 
 ## Repository verification and release process
 
-See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the package; publication remains a separate release step.
+See the [README goal audit](docs/repository-audit.md) for findings and linked implementation issues, the [consumer adoption checklist](docs/adoption-checklist.md) for compatibility evidence and replacement readiness, and the [development and publishing guide](docs/publishing.md) for CI, changelog automation, npm setup and pnpm installation guidance. The workflows verify the package; publication remains a separate release step.
 
 ### Cross-writer recovery discovery
 
