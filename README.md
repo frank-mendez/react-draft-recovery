@@ -2,7 +2,7 @@
 
 Flexible autosave and draft recovery for React forms and editors, with configurable storage, backend adapters, and explicit conflict handling.
 
-> **Status: early development.** The repository includes a tested [local recovery primitive](docs/local-recovery.md) and a framework-independent [recovery engine](docs/recovery-engine.md). A typed [React hook and runnable example](docs/react.md) are available in source; the initial ESM beta is available on npm. The initial [typed API contract](docs/api-contract.md) is defined for implementation.
+> **Status: prerelease.** The npm beta includes the recovery engine, local storage helpers and React hook. Source on `main` can be ahead of npm; check the registry version before evaluating compatibility. See [release policy](docs/publishing.md#prerelease-channels-and-installation).
 
 ## Why this library?
 
@@ -10,7 +10,7 @@ Long forms and editors need more than a debounced save. A failed request, page r
 
 React Draft Recovery aims to preserve unfinished work, make recovery explicit, and keep newer edits intact when earlier saves finish. Its design draws on draft recovery patterns developed in a working CMS and will generalize them for other React applications.
 
-## Planned capabilities
+## Capabilities
 
 - **Local recovery:** preserve drafts on the device and offer restoration after interruption.
 - **Optional remote autosave:** connect your own persistence API through an adapter.
@@ -21,11 +21,11 @@ React Draft Recovery aims to preserve unfinished work, make recovery explicit, a
 - **Custom interfaces:** provide state and actions so applications control recovery dialogs, status indicators, and styling.
 - **TypeScript support:** typed data, adapters, and recovery state.
 
-These are development goals, not guarantees of a released implementation.
+APIs may change during the beta period. Check the release notes for your installed version.
 
 ## Designed for flexibility
 
-The planned architecture separates a framework-independent recovery engine from its React integration.
+The architecture separates a framework-independent recovery engine from its React integration.
 
 | Boundary | Application controls |
 | --- | --- |
@@ -35,7 +35,7 @@ The planned architecture separates a framework-independent recovery engine from 
 | Remote persistence | Loading, saving, and discarding through your own backend |
 | User experience | Recovery choices, confirmations, errors, and navigation behavior |
 
-The core will not require Next.js, Supabase, a particular editor, or a particular form library. React Hook Form integration is planned as an example rather than a required dependency.
+The core does not require Next.js, Supabase, a particular editor, or a particular form library. React Hook Form integration is planned as an example rather than a required dependency.
 
 ## Persistence and safety boundaries
 
@@ -52,13 +52,29 @@ For backend integration, use the [remote adapter conformance suite and migration
 
 ## Installation
 
-The package name is `react-draft-recovery`, licensed under MIT. Install the initial beta with either package manager:
+The package name is `react-draft-recovery`, licensed under MIT. Install the current npm beta explicitly with either package manager:
 
 ```sh
 npm install react-draft-recovery@beta
 # or
 pnpm add react-draft-recovery@beta
 ```
+
+An unversioned install uses `latest`, which remains on the historical bootstrap
+`0.1.0-beta.0` until a reviewed stable release. Beta publications advance only
+`beta`; neither tag is inferred from the version in this repository.
+
+For reproducible consumer compatibility evaluation, inspect the channel and pin
+its exact version (the example below was verified on 2026-11-03):
+
+```sh
+npm view react-draft-recovery dist-tags --json
+npm install --save-exact react-draft-recovery@0.1.0-beta.1
+# or
+pnpm add --save-exact react-draft-recovery@0.1.0-beta.1
+```
+
+Commit the consumer lockfile. See the [beta.0 → beta.1 migration notes](CHANGELOG.md#beta0-to-beta1-migration).
 
 React applications must also install React 18.3.1+ or 19. To build and verify a local tarball:
 
@@ -69,7 +85,7 @@ pnpm test:package
 npm pack
 ```
 
-Install the generated `react-draft-recovery-0.1.0-beta.0.tgz` in another project
+Install the generated tarball reported by `npm pack` in another project
 with `npm install /path/to/package.tgz` or `pnpm add /path/to/package.tgz`.
 React applications must also install React separately.
 
@@ -85,7 +101,7 @@ React is an optional peer so core-only applications do not install it; it is
 required when using the hook. The React entry preserves its `"use client"` directive.
 
 Supported package format is ESM (no CommonJS export), targeting ES2022. Node.js
-22.14+ is supported for consumers in the next release; published beta.0 requires
+22.14+ is supported for consumers starting with published beta.1; beta.0 requires
 Node 24. Development and source tests use Node 24+. React 18.3.1+ and 19 are supported;
 the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNext
 and Bundler resolution. Browser applications need a modern ES2022-capable runtime

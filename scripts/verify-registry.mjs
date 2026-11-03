@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { registryInstallations } from './release-policy.mjs';
 import { readRegistryMetadata } from './registry-retry.mjs';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +18,7 @@ const run = (command, args, cwd) => {
   ) || (
     ['npm', 'pnpm'].includes(command) && args.length === 5 &&
     args[0] === 'install' && args[1] === '--ignore-scripts' &&
-    /^react-draft-recovery@\d+\.\d+\.\d+(-beta\.\d+)?$/.test(args[2]) &&
+    /^react-draft-recovery(@(beta|\d+\.\d+\.\d+(-beta\.\d+)?))?$/.test(args[2]) &&
     args[3] === 'react@19.2.0' && args[4] === 'react-dom@19.2.0'
   ) || (
     command === 'node' && args.length === 1 && args[0] === 'smoke.mjs'
@@ -32,7 +33,7 @@ const run = (command, args, cwd) => {
 const metadata = await readRegistryMetadata(() => JSON.parse(run('npm', ['view', `${name}@${version}`, '--json'])));
 assert.equal(metadata.version, version);
 const channel = version.includes('-beta.') ? 'beta' : 'latest';
-assert.equal(metadata['dist-tags'][channel], version, `Unexpected ${channel} dist-tag`);
+const installations = registryInstallations(version, metadata['dist-tags']);
 assert(metadata.maintainers.some(owner => (typeof owner === 'string' ? owner.split(' ')[0] : owner.name) === 'frankmendez8'), 'Expected package owner');
 if (process.argv.includes('--require-provenance')) {
   assert(metadata.dist.attestations?.provenance?.predicateType, 'Missing provenance attestation');
@@ -40,11 +41,14 @@ if (process.argv.includes('--require-provenance')) {
 const temp = mkdtempSync(join(tmpdir(), 'draft-registry-'));
 try {
   for (const manager of ['npm', 'pnpm']) {
-    const dir = join(temp, manager);
-    mkdirSync(dir);
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
-    run(manager, ['install', '--ignore-scripts', `${name}@${version}`, 'react@19.2.0', 'react-dom@19.2.0'], dir);
-    writeFileSync(join(dir, 'smoke.mjs'), `
+    for (const [index, installation] of installations.entries()) {
+      const dir = join(temp, `${manager}-${index}`);
+      mkdirSync(dir);
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
+      run(manager, ['install', '--ignore-scripts', `${name}${installation.selector}`, 'react@19.2.0', 'react-dom@19.2.0'], dir);
+      const installed = JSON.parse(readFileSync(join(dir, 'node_modules', name, 'package.json'), 'utf8'));
+      assert.equal(installed.version, installation.version, `Unexpected installed version for ${manager} ${name}${installation.selector}`);
+      writeFileSync(join(dir, 'smoke.mjs'), `
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
@@ -62,11 +66,12 @@ result.value.dispose();
 function Editor() { const draft = useDraftRecovery(options); return createElement('p', null, draft.state.value); }
 assert.equal(renderToString(createElement(Editor)), '<p>published</p>');
 `);
-    run('node', ['smoke.mjs'], dir);
-    if (process.argv.includes('--require-provenance') && manager === 'npm') {
-      run('npm', ['audit', 'signatures'], dir);
+      run('node', ['smoke.mjs'], dir);
+      if (process.argv.includes('--require-provenance') && manager === 'npm' && index === 0) {
+        run('npm', ['audit', 'signatures'], dir);
+      }
+      console.log(`${manager}: ${name}${installation.selector} resolved ${installed.version}; runtime checks passed`);
     }
-    console.log(`${manager}: registry installation and runtime checks passed`);
   }
 } finally {
   rmSync(temp, { recursive: true, force: true });
