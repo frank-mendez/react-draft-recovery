@@ -4,11 +4,18 @@ import { chromium } from 'playwright';
 
 let browser;
 const baseUrl = process.env.ADOPTION_URL;
+const expectedReactVersion = process.env.ADOPTION_REACT_VERSION;
 
 before(async () => {
   assert.ok(baseUrl, 'ADOPTION_URL must point at the packed consumer fixture');
+  assert.ok(expectedReactVersion, 'ADOPTION_REACT_VERSION must select the packed React version');
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  const page = await browser.newPage();
+  await page.goto(baseUrl);
+  await page.waitForFunction(() => window.__adoptionReactVersion !== undefined);
+  assert.equal(await page.evaluate(() => window.__adoptionReactVersion), expectedReactVersion);
+  await page.close();
 });
 
 after(async () => { await browser?.close(); });
@@ -69,12 +76,13 @@ test('A-to-B-to-A changes isolate drafts and discard a stale account response', 
   assert.equal(await page.getByLabel('Draft body').inputValue(), 'alice draft');
 
   await page.evaluate(() => window.__adoptionBackend.pendingLoads.shift()());
-  await page.waitForTimeout(50);
+  await page.waitForFunction(() => window.__adoptionBackend.staleLoadsResolved === 1);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
   assert.equal(await page.getByLabel('Draft body').inputValue(), 'alice draft');
   assert.equal(await page.getByTestId('remote-body').textContent(), '');
 });
 
-test('separate editors are isolated while competing tabs keep their own input', async t => {
+test('separate editor scopes are isolated and a new tab offers explicit recovery', async t => {
   const context = await browser.newContext();
   t.after(() => context.close());
   const left = await openPage(context, '?editor=left');
@@ -87,6 +95,24 @@ test('separate editors are isolated while competing tabs keep their own input', 
   assert.equal(await competingTab.getByTestId('candidate').textContent(), 'available');
   assert.equal(await competingTab.getByLabel('Draft body').inputValue(), '');
   assert.equal(await left.getByLabel('Draft body').inputValue(), 'left writer');
+});
+
+test('a live competing tab receives a storage event without replacing active input', async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const a = await openPage(context, '?editor=shared');
+  const b = await openPage(context, '?editor=shared');
+
+  await a.getByLabel('Draft body').fill('tab A text');
+  await b.waitForFunction(() => document.querySelector('[data-testid="candidate"]')?.textContent === 'available');
+  await b.getByLabel('Draft body').fill('tab B text');
+  await b.waitForFunction(() => document.querySelector('[data-testid="error"]')?.textContent === 'recovery_pending');
+
+  await b.getByRole('button', { name: 'Restore recovery draft' }).click();
+  await b.getByLabel('Draft body').fill('tab B after restore');
+  await a.waitForFunction(() => document.querySelector('[data-testid="candidate"]')?.textContent === 'available');
+  assert.equal(await a.getByLabel('Draft body').inputValue(), 'tab A text');
+  assert.equal(await b.getByLabel('Draft body').inputValue(), 'tab B after restore');
 });
 
 test('quota failure keeps active input visible and reports the storage error', async t => {
@@ -107,6 +133,24 @@ test('quota failure keeps active input visible and reports the storage error', a
 
   assert.equal(await page.getByLabel('Draft body').inputValue(), 'still in memory');
   assert.equal(await hasRecoveryRecord(page), false);
+});
+
+test('blocked localStorage keeps active input visible and reports storage unavailable', async t => {
+  const context = await browser.newContext();
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('Access denied', 'SecurityError'); },
+    });
+  });
+  await page.goto(baseUrl);
+  await page.waitForFunction(() => document.querySelector('textarea') && !document.querySelector('textarea').disabled);
+  await page.getByLabel('Draft body').fill('still editable without storage');
+  await page.waitForFunction(() => document.querySelector('[data-testid="error"]')?.textContent === 'storage_unavailable');
+
+  assert.equal(await page.getByLabel('Draft body').inputValue(), 'still editable without storage');
 });
 
 test('delayed and uncertain remote outcomes preserve newer input and replay the same request', async t => {
@@ -130,6 +174,7 @@ test('delayed and uncertain remote outcomes preserve newer input and replay the 
   await page.getByRole('button', { name: 'Save remotely' }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="status"]')?.textContent === 'unknown');
   const firstRequest = await page.evaluate(() => window.__adoptionBackend.requests.at(-1));
+  // Unknown outcomes use the engine's 250 ms retry backoff; wait past it before explicit replay.
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: 'Retry remote save' }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="status"]')?.textContent === 'idle');

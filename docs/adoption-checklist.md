@@ -24,25 +24,27 @@ CI runs the same checks, installing Chromium with its system dependencies. The
 packed-package check installs the generated tarball into separate npm and pnpm
 consumers, verifies React 18.3.1 and 19.2.0, SSR rendering, TypeScript resolution,
 exports, and core-only imports. The browser fixture installs the tarball into a
-separate Vite consumer and runs against React 19.2.0 in Chromium.
+separate Vite consumer and runs under React 18.3.1 and 19.2.0 in Chromium with
+React StrictMode enabled.
 
 The fixture covers reload recovery with an explicit restore, separate editor
-scopes, two competing tabs, A-to-B-to-A account changes with a late response,
-quota failure, delayed and uncertain remote saves, external document creation,
-legacy import, cleanup failure, and the reference router/pagehide flow. It uses
-synthetic local storage and an in-memory remote service; it never connects to a
-production database or loads user drafts.
+scopes, a live competing-tab storage event, A-to-B-to-A account changes with a
+late response, blocked and quota-exceeded storage, delayed and uncertain remote
+saves, external document creation, legacy import, cleanup failure, and the
+reference beforeunload handler, router, and pagehide flow. It uses synthetic
+local storage and an in-memory remote service; it never connects to a production
+database or loads user drafts.
 
 ## Guarantee boundaries
 
 | Boundary | Evidence in this repository | Consumer still owns |
 | --- | --- | --- |
-| Package and React integration | [Packed-consumer checks](../scripts/test-package.mjs), including React 18/19 SSR and types; [browser consumer](../adoption/consumer.browser.mjs) uses the built tarball | Validate the exact version and React/runtime matrix used by the application |
+| Package and React integration | [Packed-consumer checks](../scripts/test-package.mjs), including React 18/19 SSR and types; [browser consumer](../adoption/consumer.browser.mjs) uses the built tarball under React 18.3.1 and 19.2.0 with StrictMode | Validate the exact version and React/runtime matrix used by the application |
 | Recovery engine | [Engine tests](../tests/recovery-engine.test.mjs), [storage tests](../tests/local-recovery.test.mjs), and [discovery tests](../tests/recovery-discovery.test.mjs) cover frozen retries, stale results, account scope, storage failures, local contention, and explicit restore | Choose product recovery prompts and handle each returned result |
 | Remote adapter contract | [Conformance suite](../tests/remote-adapter-conformance.test.mjs) and [adapter guide](remote-adapters.md) exercise revision, idempotency, authorization, conflicts, and response-loss behavior against an isolated reference fixture | Run the suite against the application's real transactional test backend and trusted authentication boundary |
 | Legacy import | [Example adapter](../adoption/consumer/legacy-adapter.mjs), [normalization tests](../adoption/legacy-adapter.test.mjs), and browser import flow whitelist editable content and retain the source after failed cleanup | Map and validate the application's real legacy schema; explicitly decide when source cleanup is appropriate |
 | External document save | [Document-save tests](../tests/document-save.test.mjs) and browser fixture cover delayed acknowledgement, creation identity, and edits made during publication | Verify application validation, authorization, publication, and identity reconciliation |
-| Browser navigation | [Chromium adoption tests](../adoption/consumer.browser.mjs) exercise the reference beforeunload, router confirmation, and pagehide behavior | Integrate every router entry point and test the actual browsers and devices the application supports |
+| Browser navigation | [Chromium adoption tests](../adoption/consumer.browser.mjs) check the beforeunload handler, router confirmation, and pagehide behavior | Integrate every router entry point and test the actual browsers and devices the application supports |
 
 ## Application-specific checks before replacement readiness
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Keep existing engine and adapter semantics in the source test suites. Add a small browser consumer that installs the packed tarball and exercises the React hook with real browser storage and lifecycle behavior. Add a compatibility checklist mapping each claim to its evidence and naming app-owned responsibilities.
 
-**Tech Stack:** Node.js 24, pnpm, React 19 consumer fixture, Vite, Playwright Chromium, existing node:test suites.
+**Tech Stack:** Node.js 24, pnpm, React 18.3.1 and 19.2.0 consumer fixtures, Vite, Playwright Chromium, existing node:test suites.
 
 **Spec:** https://github.com/frank-mendez/react-draft-recovery/issues/26
 
@@ -39,8 +39,8 @@
 
 **Files:** `adoption/consumer/index.html`, `adoption/consumer/main.jsx`, `scripts/test-adoption.mjs`, `package.json`, `pnpm-lock.yaml`
 
-- [x] Add Playwright scenarios for reload/restore, distinct editor scopes, competing tabs, A-to-B-to-A accounts, quota failure, stale/delayed remote responses, and navigation behavior.
-- [x] Pack the current package, install the tarball into a temporary independent React/Vite consumer with a committed npm lockfile, and run it in Chromium.
+- [x] Add Playwright scenarios for reload/restore, distinct editor scopes, live competing-tab storage events, A-to-B-to-A accounts, blocked/quota storage, stale/delayed remote responses, and navigation behavior.
+- [x] Pack the current package, install the tarball into temporary independent React/Vite consumers with committed React 18 and React 19 npm lockfiles, and run both in Chromium StrictMode.
 - [x] Run the new browser test locally and fix failures before wiring it into CI.
 
 ### Task 3: Compatibility gate and CI
@@ -56,5 +56,5 @@
 
 - `pnpm lint`, `pnpm typecheck`, and `pnpm test`: passed (216 tests).
 - `pnpm build` and `pnpm test:package`: passed, including npm/pnpm consumers, React 18.3.1 and 19.2.0 SSR/type checks, and core-only imports.
-- `pnpm test:adoption`: passed (9 Chromium scenarios against the packed tarball).
+- `pnpm test:adoption`: passed (11 Chromium scenarios each against the packed tarball under React 18.3.1 and React 19.2.0, with StrictMode enabled).
 - Consumer readiness still requires the consuming application's real backend, authentication, legacy schema, router, and supported-browser checks listed in `docs/adoption-checklist.md`.

@@ -1,8 +1,10 @@
-import { createElement as h, useEffect, useMemo, useRef, useState } from 'react';
+import { StrictMode, createElement as h, useCallback, useEffect, useMemo, useRef, useState, version as reactVersion } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useDraftRecovery } from 'react-draft-recovery';
 import { createLocalStorageAdapter, createRecoveryDiscovery } from 'react-draft-recovery/core';
 import { createLegacyAdapter, legacyStorageKey } from './legacy-adapter.mjs';
+
+window.__adoptionReactVersion = reactVersion;
 
 const ok = value => ({ kind: 'ok', value });
 const codec = {
@@ -30,6 +32,7 @@ const storage = createLocalStorageAdapter();
 const backend = window.__adoptionBackend ??= {
   streams: new Map(),
   pendingLoads: [],
+  staleLoadsResolved: 0,
   pendingSaves: [],
   pendingDocument: null,
   requests: [],
@@ -57,10 +60,13 @@ function createRemote(scope) {
     async load() {
       if (scope.userId === 'alice' && backend.delayAliceLoad) {
         backend.delayAliceLoad = false;
-        return new Promise(resolve => backend.pendingLoads.push(() => resolve(ok({
-          kind: 'present', revision: 'stale-alice-load',
-          value: { body: 'stale account response', approvalStatus: 'awaiting_review' },
-        }))));
+        return new Promise(resolve => backend.pendingLoads.push(() => {
+          backend.staleLoadsResolved++;
+          resolve(ok({
+            kind: 'present', revision: 'stale-alice-load',
+            value: { body: 'stale account response', approvalStatus: 'awaiting_review' },
+          }));
+        }));
       }
       return ok(structuredClone(state.snapshot));
     },
@@ -100,7 +106,7 @@ function createRemote(scope) {
   };
 }
 
-function Editor({ account, editorId, manual, legacySelection, onAccountChange, onLegacyPrepared, onRemount }) {
+function Editor({ account, editorId, manual, legacySelection, onAccountChange, onLegacyPrepared, onLegacySelectionDone, onRemount }) {
   window.__adoptionAccount = account;
   const scope = useMemo(() => ({ userId: account, documentId: 'article-7', editorId }), [account, editorId]);
   const remote = useMemo(() => createRemote(scope), [scope]);
@@ -146,11 +152,13 @@ function Editor({ account, editorId, manual, legacySelection, onAccountChange, o
       expectedBody = JSON.parse(pending.candidate.record.payload).body;
     } catch {
       pendingLegacyRestore.current = null;
+      onLegacySelectionDone(pending.discovery);
       setLegacyCleanup('Restore could not be verified; legacy source remains');
       return;
     }
     if (state.value.body !== expectedBody) {
       pendingLegacyRestore.current = null;
+      onLegacySelectionDone(pending.discovery);
       setLegacyCleanup('Restore did not match the imported draft; legacy source remains');
       return;
     }
@@ -161,6 +169,7 @@ function Editor({ account, editorId, manual, legacySelection, onAccountChange, o
       const persisted = await actions.persistLocal();
       if (persisted.kind !== 'ok') {
         pendingLegacyRestore.current = null;
+        onLegacySelectionDone(pending.discovery);
         setLegacyCleanup(`Local recovery save failed (${persisted.code}); legacy source remains`);
         return;
       }
@@ -170,11 +179,12 @@ function Editor({ account, editorId, manual, legacySelection, onAccountChange, o
         pending.candidate.revision,
       );
       pendingLegacyRestore.current = null;
+      onLegacySelectionDone(pending.discovery);
       setLegacyCleanup(discarded.kind === 'ok'
         ? 'Legacy source cleaned up'
         : `Legacy cleanup failed (${discarded.code}); both copies remain`);
     })();
-  }, [actions, state.candidate.kind, state.value]);
+  }, [actions, onLegacySelectionDone, state.candidate.kind, state.value]);
 
   async function seedLegacyRecord() {
     const id = legacyStorageKey({ userId: account, documentId: 'article-7', writerId: 'old-editor' });
@@ -221,10 +231,19 @@ function Editor({ account, editorId, manual, legacySelection, onAccountChange, o
     const restored = actions.restore();
     if (restored.kind !== 'ok') {
       pendingLegacyRestore.current = null;
+      onLegacySelectionDone(legacySelection.discovery);
       setLegacyCleanup(`Restore failed (${restored.code}); legacy source remains`);
       return;
     }
     setLegacyCleanup('Verifying restored copy before cleanup');
+  }
+
+  function restoreRecoveryDraft() {
+    const restored = actions?.restore();
+    if (restored?.kind === 'ok' && legacySelection) {
+      // This explicit restore keeps the old source but ends this import session.
+      onLegacySelectionDone(legacySelection.discovery);
+    }
   }
 
   async function publishDocument() {
@@ -282,7 +301,7 @@ function Editor({ account, editorId, manual, legacySelection, onAccountChange, o
   h('output', { 'data-testid': 'document-saving' }, String(state.document.saving)),
   h('output', { 'data-testid': 'message' }, message),
   h('output', { 'data-testid': 'legacy-cleanup' }, legacyCleanup),
-  candidateAvailable && h('button', { onClick: () => actions?.restore() }, 'Restore recovery draft'),
+  candidateAvailable && h('button', { onClick: restoreRecoveryDraft }, 'Restore recovery draft'),
   candidateAvailable && legacySelection && h('button', { onClick: restoreLegacy }, 'Use imported legacy draft'),
   h('button', { onClick: () => { void actions?.persistLocal(); } }, 'Persist local copy'),
   h('button', { onClick: () => { void actions?.save(); } }, 'Save remotely'),
@@ -301,12 +320,16 @@ function App() {
   const editorId = params.get('editor') ?? 'main';
   const manual = params.get('manual') === '1';
   window.__adoptionAccount = account;
+  const finishLegacySelection = useCallback(discovery => {
+    discovery.dispose();
+    setLegacySelection(current => current?.discovery === discovery ? null : current);
+  }, []);
   function changeAccount(value) {
     legacySelection?.discovery.dispose();
     setLegacySelection(null);
     setAccount(value);
   }
-  return h(Editor, {
+  return h(StrictMode, null, h(Editor, {
     key: generation,
     account,
     editorId,
@@ -314,8 +337,9 @@ function App() {
     legacySelection,
     onAccountChange: changeAccount,
     onLegacyPrepared: setLegacySelection,
+    onLegacySelectionDone: finishLegacySelection,
     onRemount: () => setGeneration(value => value + 1),
-  });
+  }));
 }
 
 createRoot(document.getElementById('root')).render(h(App));
