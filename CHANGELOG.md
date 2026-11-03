@@ -62,6 +62,26 @@
 ## [0.1.0-beta.1](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.0...v0.1.0-beta.1) (2026-10-27)
 
 
+### beta.0 to beta.1 migration
+
+- Successful remote saves persist the acknowledged base revision in local recovery
+  state. Reloaded drafts can retain their known ancestry. Keep using the library's
+  storage records; custom storage adapters must preserve their revision metadata.
+- Input edited before remote discovery establishes the base is treated
+  conservatively: discovery must not silently attach that input to a newly loaded
+  revision. Applications must handle recovery/reconciliation outcomes instead of
+  assuming that a completed remote load makes early edits safe to save. Test delayed
+  discovery and failed-load/retry flows with your adapter and recovery UI.
+- Consumer Node support expands from beta.0's Node 24 requirement to Node 22.14+.
+  Development/source tests still require Node 24+.
+- No automatic destructive migration is required. Preserve existing local drafts
+  and test restoration and saving across reloads before rolling out the upgrade.
+  Later source features are not implied by installing beta.1.
+
+Pin `react-draft-recovery@0.1.0-beta.1` for a reproducible evaluation. Unversioned
+installation may still select beta.0; see the [channel policy](docs/publishing.md#prerelease-channels-and-installation).
+
+
 ### Features
 
 * add publishable package and packed consumer validation ([#14](https://github.com/frank-mendez/react-draft-recovery/issues/14)) ([25b3123](https://github.com/frank-mendez/react-draft-recovery/commit/25b3123359c5f4c865471ec8e0eb86b3c9b6fea4))
