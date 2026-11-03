@@ -28,6 +28,10 @@ jobs:
           pnpm run test
           pnpm run build
           pnpm run test:package
+      - name: Install Chromium for the adoption consumer
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Verify packed consumer workflows
+        run: pnpm run test:adoption
 
   react:
     runs-on: ubuntu-latest
