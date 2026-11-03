@@ -40,15 +40,16 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org
       - run: node scripts/check-repository.mjs --require-package
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Install library dependencies
+        run: pnpm install --frozen-lockfile
       - name: Check contracts and local recovery
         run: |
           npm ci --prefix contracts --ignore-scripts
           npm run --prefix contracts typecheck
           npm run --prefix contracts test
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - name: Build and verify release
         run: |
-          pnpm install --frozen-lockfile
           pnpm run lint
           pnpm run typecheck
           pnpm run test
