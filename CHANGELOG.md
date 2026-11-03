@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.0-beta.8](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.7...v0.1.0-beta.8) (2026-11-03)
+
+
+### Features
+
+* add consumer adoption gate ([b185ffb](https://github.com/frank-mendez/react-draft-recovery/commit/b185ffbc2ae575b9e297dc0a27ce858d6ce66875))
+* add consumer adoption gate ([ea2b7e7](https://github.com/frank-mendez/react-draft-recovery/commit/ea2b7e7aba9a73c707427acfbc8892497acb81f2))
+
+
+### Bug Fixes
+
+* install root dependencies before release contract tests ([f0f27f6](https://github.com/frank-mendez/react-draft-recovery/commit/f0f27f6712f6f086db7f77b6d2bb7eea638e0500))
+* install root dependencies before release contract tests ([5cc2fc7](https://github.com/frank-mendez/react-draft-recovery/commit/5cc2fc7ae45b1de12de1e94dc76e7775b0bdd2ec))
+
 ## [0.1.0-beta.7](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.6...v0.1.0-beta.7) (2026-10-29)
 
 
