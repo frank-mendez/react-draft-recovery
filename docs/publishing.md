@@ -3,27 +3,25 @@
 The repository builds the MIT-licensed `react-draft-recovery` ESM package.
 `0.1.0-beta.0` was published with the `beta` tag from tag [`v0.1.0-beta.0`](https://github.com/frank-mendez/react-draft-recovery/tree/v0.1.0-beta.0)
 (commit `2890d88`). This tag preserves the exact published source even if the PR is squash-merged.
-Future automated releases still require the trusted publisher configuration below.
+Releases since beta.7 are published by the trusted-publishing workflow below with npm provenance.
 
-## Prerelease channels and installation
+## Release channels and installation
 
-Beta releases publish explicitly to `beta`. Until the first reviewed stable
-release, `latest` remains at the historical bootstrap `0.1.0-beta.0`; subsequent
-prereleases must not move it. Stable releases publish to `latest`. After stable
-exists, beta releases leave that stable default intact. Changes to this policy
-require a reviewed maintainer release action; documentation or verification work
-(including issue #25) does not authorize `npm dist-tag` mutations or publication.
+Stable releases publish to `latest`, starting with `0.1.0`. Prereleases publish
+explicitly to `beta` and never move `latest`. Changes to this policy require a
+reviewed maintainer release action; documentation or verification work does not
+authorize `npm dist-tag` mutations or publication.
 
-Use `npm install react-draft-recovery@beta` or
-`pnpm add react-draft-recovery@beta` for the current prerelease. An unversioned
-install selects `latest` and can therefore install the older bootstrap beta.
-For compatibility evaluation, run `npm view react-draft-recovery dist-tags --json`,
-then use `npm install --save-exact react-draft-recovery@<version>` or
-`pnpm add --save-exact react-draft-recovery@<version>` and commit the lockfile.
+Use `npm install react-draft-recovery` or `pnpm add react-draft-recovery` for the
+stable release. Until a newer prerelease is published, the `beta` tag still points
+at `0.1.0-beta.9`, which is older than `0.1.0`; install `@beta` only when a newer
+prerelease exists. For reproducible evaluation, run
+`npm view react-draft-recovery dist-tags --json`, pin with `--save-exact`, and
+commit the lockfile.
 
-Registry observation on 2026-11-03: `latest=0.1.0-beta.0`, `beta=0.1.0-beta.1`.
-These tags are mutable: recheck before each release. The source version and
-GitHub release history can be ahead of npm. See the
+Version history note: `0.1.0-beta.2` through `0.1.0-beta.6` exist as GitHub
+releases but were never published to npm. Prerelease history on npm is
+`0.1.0-beta.0`, `-beta.1`, `-beta.7`, `-beta.8` and `-beta.9`. See the
 [beta.0 → beta.1 migration notes](../CHANGELOG.md#beta0-to-beta1-migration).
 
 Release verification asserts that the supplied version owns its intended channel
@@ -70,7 +68,9 @@ Node 24; the broader engine range applies starting with published beta.1.
 
 Use Conventional Commits for squash merge titles (`feat:`, `fix:`, `docs:`, `chore:`; `!` for breaking changes). Release Please opens a PR updating package.json, CHANGELOG.md and its manifest; merging that PR produces a GitHub tag/release. Review the version and notes before merging.
 
-The manifest tracks GitHub release versioning, which may be ahead of npm publication. Keep it aligned with the latest GitHub release. Check the first generated version before merging. When graduating to stable, change the prerelease configuration and explicitly select the intended stable version in a reviewed release PR.
+The manifest tracks GitHub release versioning, which may be ahead of npm publication. Keep it aligned with the latest GitHub release. Check the generated version before merging.
+
+Graduating to stable: `release-please-config.json` no longer uses prerelease versioning and pins `"release-as": "0.1.0"` so the next release PR proposes exactly `0.1.0`. After `v0.1.0` is tagged, remove `release-as` in a follow-up `chore:` PR; otherwise every later release PR keeps proposing `0.1.0`. To cut a later prerelease, use a `Release-As: 0.2.0-beta.0` commit footer for that release only.
 
 Enable the repository variable `RELEASE_ENABLED=true` only once package.json and the implementation are ready. Permit Actions to create PRs in repository settings. Set `RELEASE_PLEASE_TOKEN` to a suitably scoped GitHub App/user token if automated PRs need to trigger CI. The fallback GITHUB_TOKEN cannot trigger workflows through its own PR events. The changelog workflow explicitly dispatches Development on the generated PR branch using its actions:write permission; workflow_dispatch is supported with GITHUB_TOKEN. This also reruns validation when the release PR changes. If dispatch fails, manually run Development on that branch. Required checks must still pass before merge.
 
@@ -85,11 +85,11 @@ Enable the repository variable `RELEASE_ENABLED=true` only once package.json and
 
 ## Publishing and recovery
 
-Run **Publish npm release** manually from **main**, supplying the reviewed tag (for example `v0.1.0-beta.1`). The workflow requires that the tag is on main, checks out its exact source, verifies version/metadata, runs all package checks, packs, then publishes the tarball. Beta versions use the `beta` dist-tag; stable versions use `latest`. npm provenance is requested. Changelog generation and publication are separate deliberately: tags created with GITHUB_TOKEN do not start another workflow automatically.
+Run **Publish npm release** manually from **main**, supplying the reviewed tag (for example `v0.1.0`). The workflow requires that the tag is on main, checks out its exact source, verifies version/metadata, runs all package checks, packs, then publishes the tarball. Beta versions use the `beta` dist-tag; stable versions use `latest`. npm provenance is requested. Changelog generation and publication are separate deliberately: tags created with GITHUB_TOKEN do not start another workflow automatically.
 
 After publication, the workflow runs scripts/verify-registry.mjs with --require-provenance. It checks the version, beta/latest dist-tag, owner and attestation metadata, installs the published version using npm and pnpm, exercises core recovery and React SSR, and verifies registry signatures/attestations with npm audit signatures. If publishing fails, inspect npm first: a network error may occur after a successful upload. If that exact version is absent, fix the external configuration and dispatch the same tag again. Published versions cannot be overwritten; source changes require a new version/tag and release PR. A GitHub release can exist while npm publication is still pending.
 
-There is one publication destination: the npm registry. pnpm is a package manager that consumes it. Users can run `npm install react-draft-recovery@beta` or `pnpm add react-draft-recovery@beta`. Check npm metadata for the current channel version; GitHub releases do not imply npm publication.
+There is one publication destination: the npm registry. pnpm is a package manager that consumes it. Users can run `npm install react-draft-recovery` or `pnpm add react-draft-recovery`. Check npm metadata for the current channel version; GitHub releases do not imply npm publication.
 
 ## References
 
