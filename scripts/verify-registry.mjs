@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { registryInstallations } from './release-policy.mjs';
-import { readRegistryMetadata } from './registry-retry.mjs';
+import { readRegistryMetadata, retryRegistryOperation } from './registry-retry.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -26,9 +26,16 @@ const run = (command, args, cwd) => {
     command === 'npm' && args.length === 2 && args[0] === 'audit' && args[1] === 'signatures'
   );
   if (!allowed) throw new Error('Unsupported registry verification command');
-  return execFileSync(command, args, {
-    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: false,
-  });
+  // npm reports audit-signature 404s on stderr; capture them so only E404 is retried.
+  const captureStderr = command === 'npm' && args[0] === 'audit' && args[1] === 'signatures';
+  try {
+    return execFileSync(command, args, {
+      cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', captureStderr ? 'pipe' : 'inherit'], shell: false,
+    });
+  } catch (error) {
+    if (captureStderr && error.stderr) process.stderr.write(error.stderr);
+    throw error;
+  }
 };
 const metadata = await readRegistryMetadata(() => JSON.parse(run('npm', ['view', `${name}@${version}`, '--json'])));
 assert.equal(metadata.version, version);
@@ -68,7 +75,7 @@ assert.equal(renderToString(createElement(Editor)), '<p>published</p>');
 `);
       run('node', ['smoke.mjs'], dir);
       if (process.argv.includes('--require-provenance') && manager === 'npm' && index === 0) {
-        run('npm', ['audit', 'signatures'], dir);
+        await retryRegistryOperation(() => run('npm', ['audit', 'signatures'], dir));
       }
       console.log(`${manager}: ${name}${installation.selector} resolved ${installed.version}; runtime checks passed`);
     }
