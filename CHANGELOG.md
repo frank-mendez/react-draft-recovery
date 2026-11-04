@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.9...v0.1.0) (2026-11-04)
+
+
+### Documentation
+
+* prepare 0.1.0 stable release ([10dea3b](https://github.com/frank-mendez/react-draft-recovery/commit/10dea3bd91d4baa90ab37e884fb5fdbd8b657d42))
+
 ## [0.1.0-beta.9](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.8...v0.1.0-beta.9) (2026-11-04)
 
 
