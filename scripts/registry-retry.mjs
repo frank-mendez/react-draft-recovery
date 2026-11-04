@@ -11,7 +11,9 @@ function isRegistryNotFound(error) {
 }
 
 // Retry temporary registry propagation failures, never auth or integrity errors.
-export async function retryRegistryOperation(operation, { attempts = 12, delay = 10000, wait = setTimeout } = {}) {
+// npm can take several minutes to serve a new version (0.1.0 took ~2m10s), so
+// allow about five minutes before failing.
+export async function retryRegistryOperation(operation, { attempts = 30, delay = 10000, wait = setTimeout } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       return await operation();
