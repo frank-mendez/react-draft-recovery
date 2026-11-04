@@ -2,7 +2,7 @@
 
 Flexible autosave and draft recovery for React forms and editors, with configurable storage, backend adapters, and explicit conflict handling.
 
-> **Status: prerelease.** The npm beta includes the recovery engine, local storage helpers and React hook. Source on `main` can be ahead of npm; check the registry version before evaluating compatibility. See [release policy](docs/publishing.md#prerelease-channels-and-installation).
+> **Status: stable 0.x.** `0.1.0` is the first stable release of the recovery engine, local storage helpers and React hook. See [compatibility and versioning](#compatibility-and-versioning) for what 0.x releases promise.
 
 ## Why this library?
 
@@ -21,7 +21,7 @@ React Draft Recovery aims to preserve unfinished work, make recovery explicit, a
 - **Custom interfaces:** provide state and actions so applications control recovery dialogs, status indicators, and styling.
 - **TypeScript support:** typed data, adapters, and recovery state.
 
-APIs may change during the beta period. Check the release notes for your installed version.
+The public API follows [Semantic Versioning for 0.x releases](#compatibility-and-versioning). Check the release notes before upgrading across minor versions.
 
 ## Designed for flexibility
 
@@ -52,29 +52,18 @@ For backend integration, use the [remote adapter conformance suite and migration
 
 ## Installation
 
-The package name is `react-draft-recovery`, licensed under MIT. Install the current npm beta explicitly with either package manager:
+The package name is `react-draft-recovery`, licensed under MIT. Install the stable release with either package manager:
 
 ```sh
-npm install react-draft-recovery@beta
+npm install react-draft-recovery
 # or
-pnpm add react-draft-recovery@beta
+pnpm add react-draft-recovery
 ```
 
-An unversioned install uses `latest`, which remains on the historical bootstrap
-`0.1.0-beta.0` until a reviewed stable release. Beta publications advance only
-`beta`; neither tag is inferred from the version in this repository.
-
-For reproducible consumer compatibility evaluation, inspect the channel and pin
-its exact version (the example below was verified on 2026-11-03):
-
-```sh
-npm view react-draft-recovery dist-tags --json
-npm install --save-exact react-draft-recovery@0.1.0-beta.1
-# or
-pnpm add --save-exact react-draft-recovery@0.1.0-beta.1
-```
-
-Commit the consumer lockfile. See the [beta.0 → beta.1 migration notes](CHANGELOG.md#beta0-to-beta1-migration).
+Unversioned installs use the `latest` dist-tag, which carries stable releases.
+Prereleases, when published, use the `beta` dist-tag and never move `latest`.
+Commit the consumer lockfile. Upgrading from a `0.1.0-beta.*` version? See the
+[changelog](CHANGELOG.md), including the [beta.0 → beta.1 migration notes](CHANGELOG.md#beta0-to-beta1-migration).
 
 React applications must also install React 18.3.1+ or 19. To build and verify a local tarball:
 
@@ -108,11 +97,35 @@ React is an optional peer so core-only applications do not install it; it is
 required when using the hook. The React entry preserves its `"use client"` directive.
 
 Supported package format is ESM (no CommonJS export), targeting ES2022. Node.js
-22.14+ is supported for consumers starting with published beta.1; beta.0 requires
-Node 24. Development and source tests use Node 24+. React 18.3.1+ and 19 are supported;
+22.14+ is supported for consumers. Development and source tests use Node 24+. React 18.3.1+ and 19 are supported;
 the tarball is tested with 18.3.1 and 19.2.0, and TypeScript 5.9.3 using NodeNext
 and Bundler resolution. Browser applications need a modern ES2022-capable runtime
 and bundler; browser storage remains optional through the storage adapter.
+
+## Compatibility and versioning
+
+The public API is everything exported from the three package entry points:
+
+| Entry | Contents |
+| --- | --- |
+| `react-draft-recovery` and `react-draft-recovery/react` | `useDraftRecovery` and its types |
+| `react-draft-recovery/core` | `createRecovery`, `createLocalRecovery`, `createLocalStorageAdapter`, `storageKey`, `createRecoveryDiscovery`, `createAutosaveScheduler`, and the contract types in [docs/api-contract.md](docs/api-contract.md) |
+
+Deep imports into `dist/` are not supported. Releases follow Semantic Versioning
+with the usual 0.x convention:
+
+- **Patch (`0.1.x`)**: bug fixes and documentation only; no changes to public
+  types, result codes or the persisted local record format.
+- **Minor (`0.x.0`)**: may add features and may include breaking API changes.
+  Breaking changes are marked `!` in commit titles and called out in the changelog.
+- **Local record format**: stored drafts written by an earlier release remain
+  readable, or are reported through the documented codec/version failure
+  instead of being silently dropped.
+
+`1.0.0` will follow once the API has held steady through real-world adoption.
+
+Supported environments: ESM only (ES2022), Node.js 22.14+, React 18.3.1+ or 19,
+and TypeScript 5.9+ with NodeNext or Bundler resolution.
 
 ## Developing from source
 
@@ -136,14 +149,15 @@ pnpm test
 - [x] Verify account isolation, competing tabs, storage failures, and server rendering in the [consumer adoption gate](docs/adoption-checklist.md).
 - [x] Validate the packed package in independent npm and pnpm consumer applications.
 - [x] Publish the initial beta with documentation.
-- [ ] Configure and verify trusted publishing for repeatable automated releases.
-- [ ] Stabilize the API based on real usage and feedback.
+- [x] Configure and verify trusted publishing for repeatable automated releases.
+- [x] Publish the first stable 0.x release.
+- [ ] Gather real-world adoption feedback before committing to a 1.0 API.
 
 ## Contributing
 
-The project is in early implementation. Use [GitHub Issues](https://github.com/frank-mendez/react-draft-recovery/issues) to share use cases, expected recovery behavior, and integration requirements.
+Use [GitHub Issues](https://github.com/frank-mendez/react-draft-recovery/issues) to share use cases, expected recovery behavior, and integration requirements.
 
-Development setup, contribution guidelines, and compatibility details will be added alongside the implementation. Please discuss substantial changes in an issue before starting a pull request.
+See [Developing from source](#developing-from-source) for setup and [compatibility and versioning](#compatibility-and-versioning) for support policy. Please discuss substantial changes in an issue before starting a pull request.
 
 ## Repository verification and release process
 
