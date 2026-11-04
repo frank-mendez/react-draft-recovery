@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0-beta.9](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.8...v0.1.0-beta.9) (2026-11-04)
+
+
+### Bug Fixes
+
+* preserve registry metadata retry contract ([516cb2a](https://github.com/frank-mendez/react-draft-recovery/commit/516cb2accddfd65ebf7f4aba8c48fff82d58e3cc))
+* retry transient provenance registry 404s ([8cea2b9](https://github.com/frank-mendez/react-draft-recovery/commit/8cea2b981f82ef9d2a011a82387707a732ef864a))
+
 ## [0.1.0-beta.8](https://github.com/frank-mendez/react-draft-recovery/compare/v0.1.0-beta.7...v0.1.0-beta.8) (2026-11-03)
 
 
