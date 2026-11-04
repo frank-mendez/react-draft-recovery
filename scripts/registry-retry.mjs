@@ -24,5 +24,5 @@ export async function retryRegistryOperation(operation, { attempts = 12, delay =
 }
 
 export function readRegistryMetadata(read, options) {
-  return retryRegistryOperation(() => JSON.parse(read()), options);
+  return retryRegistryOperation(read, options);
 }
