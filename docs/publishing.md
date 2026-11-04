@@ -70,7 +70,9 @@ Use Conventional Commits for squash merge titles (`feat:`, `fix:`, `docs:`, `cho
 
 The manifest tracks GitHub release versioning, which may be ahead of npm publication. Keep it aligned with the latest GitHub release. Check the generated version before merging.
 
-Graduating to stable: `release-please-config.json` no longer uses prerelease versioning and pins `"release-as": "0.1.0"` so the next release PR proposes exactly `0.1.0`. After `v0.1.0` is tagged, remove `release-as` in a follow-up `chore:` PR; otherwise every later release PR keeps proposing `0.1.0`. To cut a later prerelease, use a `Release-As: 0.2.0-beta.0` commit footer for that release only.
+Stable `0.1.0` was released on 2026-11-04. Release Please now derives versions from conventional commits: `fix:` bumps the patch, `feat:` bumps the minor, and with `bump-minor-pre-major` a breaking `!` change bumps the minor instead of jumping to `1.0.0`. Graduate to `1.0.0` deliberately with a `Release-As: 1.0.0` commit footer. To cut a prerelease, use a `Release-As: 0.2.0-beta.0` footer for that release only.
+
+If the publish job's registry verification times out after `npm publish` succeeded, the version is already on npm: do not republish. Run **Verify published npm release** for the same tag once npm serves it.
 
 Enable the repository variable `RELEASE_ENABLED=true` only once package.json and the implementation are ready. Permit Actions to create PRs in repository settings. Set `RELEASE_PLEASE_TOKEN` to a suitably scoped GitHub App/user token if automated PRs need to trigger CI. The fallback GITHUB_TOKEN cannot trigger workflows through its own PR events. The changelog workflow explicitly dispatches Development on the generated PR branch using its actions:write permission; workflow_dispatch is supported with GITHUB_TOKEN. This also reruns validation when the release PR changes. If dispatch fails, manually run Development on that branch. Required checks must still pass before merge.
 
